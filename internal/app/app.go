@@ -16,7 +16,6 @@ import (
 	"web-share/internal/manager"
 	"web-share/internal/shell"
 	"web-share/internal/tray"
-	"web-share/internal/windowssvc"
 )
 
 func Run() error {
@@ -35,19 +34,10 @@ func Run() error {
 			return errors.New("tray mode is only supported on Windows")
 		}
 		return tray.Run()
-	case "service":
-		if runtime.GOOS != "windows" {
-			return errors.New("service mode is only supported on Windows")
-		}
-		return windowssvc.RunService()
 	case "install-context-menu":
 		return runInstallContextMenu(os.Args[2:])
 	case "uninstall-context-menu":
 		return runUninstallContextMenu()
-	case "install-service":
-		return runInstallService(os.Args[2:])
-	case "uninstall-service":
-		return runUninstallService()
 	case "-h", "--help", "help":
 		printUsage()
 		return nil
@@ -156,27 +146,6 @@ func runUninstallContextMenu() error {
 	return shell.UninstallContextMenu()
 }
 
-func runInstallService(args []string) error {
-	if runtime.GOOS != "windows" {
-		return errors.New("service installation is only supported on Windows")
-	}
-
-	exePath, err := resolveExecutableArg(args)
-	if err != nil {
-		return err
-	}
-
-	return windowssvc.Install(exePath)
-}
-
-func runUninstallService() error {
-	if runtime.GOOS != "windows" {
-		return errors.New("service installation is only supported on Windows")
-	}
-
-	return windowssvc.Uninstall()
-}
-
 func resolveExecutableArg(args []string) (string, error) {
 	fs := flag.NewFlagSet("exe", flag.ContinueOnError)
 	exe := fs.String("exe", "", "Path to web-share.exe")
@@ -219,12 +188,11 @@ Usage:
   web-share run-manager
   web-share install-context-menu [-exe C:\path\to\web-share.exe]
   web-share uninstall-context-menu
-  web-share install-service [-exe C:\path\to\web-share.exe]
-  web-share uninstall-service
 
 Notes:
   - enqueue/share sends a new share task to the local manager.
   - The manager keeps all shares in one background process.
+  - If manager or tray is not running, enqueue starts them in the background.
   - The tray icon opens the localhost management page.
   - File shares are always read-only.
   - Folder shares become upload-enabled only when -password is set.
