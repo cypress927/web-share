@@ -3,6 +3,7 @@ package manager
 import (
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	qrcode "github.com/skip2/go-qrcode"
 )
 
 const (
@@ -42,9 +45,11 @@ type Manager struct {
 
 type Share struct {
 	ID          string
+	Code        string
 	Path        string
 	Name        string
 	IsDir       bool
+	Visible     bool
 	Password    string
 	CreatedAt   time.Time
 	LastUpdated time.Time
@@ -56,25 +61,47 @@ type CreateShareRequest struct {
 }
 
 type managePageData struct {
-	Title  string
-	Shares []manageShareCard
+	Title      string
+	PublicURL  string
+	VisibleURL string
+	Shares     []manageShareCard
 }
 
 type manageShareCard struct {
-	ID           string
-	Name         string
-	Path         string
-	Type         string
-	Mode         string
-	CreatedAt    string
-	UpdatedAt    string
-	LocalURL     string
-	NetworkLinks []string
+	ID             string
+	Code           string
+	Name           string
+	Path           string
+	Type           string
+	Mode           string
+	Visibility     string
+	CreatedAt      string
+	UpdatedAt      string
+	LocalURL       string
+	PublicURL      string
+	PrimaryURL     string
+	QRCodeDataURL  template.URL
+	NetworkLinks   []string
+	NameInput      string
+	VisibleChecked bool
+}
+
+type homePageData struct {
+	Title         string
+	VisibleShares []publicShareCard
+	ErrorMessage  string
+}
+
+type publicShareCard struct {
+	Name string
+	Code string
+	Type string
+	URL  string
 }
 
 type sharePageData struct {
 	Title          string
-	ShareID        string
+	ShareCode      string
 	SharedName     string
 	SharedPath     string
 	IsDir          bool
@@ -99,15 +126,17 @@ func DefaultConfig() Config {
 func Run(cfg Config) error {
 	mgr := &Manager{
 		cfg:       cfg,
-		templates: template.Must(template.New("pages").Parse(manageHTML + shareHTML)),
+		templates: template.Must(template.New("pages").Parse(homeHTML + manageHTML + shareHTML)),
 		shares:    make(map[string]*Share),
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/", mgr.handleHome)
 	mux.HandleFunc("/api/ping", mgr.handlePing)
 	mux.HandleFunc("/api/shares", mgr.handleCreateShare)
 	mux.HandleFunc("/api/shares/", mgr.handleShareAPI)
 	mux.HandleFunc("/manage", mgr.handleManage)
+	mux.HandleFunc("/manage/shares/", mgr.handleManageShareAction)
 	mux.HandleFunc("/s/", mgr.handleShare)
 
 	mgr.server = &http.Server{
@@ -134,6 +163,40 @@ func IsReachable() bool {
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
+}
+
+func (m *Manager) handleHome(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+
+	code := strings.TrimSpace(r.URL.Query().Get("code"))
+	if code != "" {
+		share := m.getShareByCode(code)
+		if share == nil {
+			data := homePageData{
+				Title:         "Web Share",
+				VisibleShares: m.listVisibleShares(),
+				ErrorMessage:  "分享码不存在",
+			}
+			if err := m.templates.ExecuteTemplate(w, "home", data); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			return
+		}
+
+		http.Redirect(w, r, "/s/"+share.Code, http.StatusSeeOther)
+		return
+	}
+
+	data := homePageData{
+		Title:         "Web Share",
+		VisibleShares: m.listVisibleShares(),
+	}
+	if err := m.templates.ExecuteTemplate(w, "home", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func (m *Manager) handlePing(w http.ResponseWriter, r *http.Request) {
@@ -166,8 +229,9 @@ func (m *Manager) handleCreateShare(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(map[string]string{
-		"id":  share.ID,
-		"url": fmt.Sprintf("/s/%s", share.ID),
+		"id":   share.ID,
+		"code": share.Code,
+		"url":  fmt.Sprintf("/s/%s", share.Code),
 	})
 }
 
@@ -202,14 +266,51 @@ func (m *Manager) handleManage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	host := "127.0.0.1"
+	if r.Host != "" {
+		host = r.Host
+	}
+
 	data := managePageData{
-		Title:  "Web Share Manager",
-		Shares: m.listManageCards(),
+		Title:      "Web Share Manager",
+		PublicURL:  fmt.Sprintf("http://%s/", host),
+		VisibleURL: fmt.Sprintf("http://%s/", host),
+		Shares:     m.listManageCards(),
 	}
 
 	if err := m.templates.ExecuteTemplate(w, "manage", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func (m *Manager) handleManageShareAction(w http.ResponseWriter, r *http.Request) {
+	if !isLocalRequest(r.RemoteAddr) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	path := strings.TrimPrefix(r.URL.Path, "/manage/shares/")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) != 2 || parts[1] != "update" {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	if err := m.updateShare(parts[0], r.FormValue("name"), r.FormValue("visible") == "on"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	http.Redirect(w, r, "/manage", http.StatusSeeOther)
 }
 
 func (m *Manager) handleShare(w http.ResponseWriter, r *http.Request) {
@@ -220,7 +321,7 @@ func (m *Manager) handleShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	share := m.getShare(parts[0])
+	share := m.getShareByCode(parts[0])
 	if share == nil {
 		http.NotFound(w, r)
 		return
@@ -253,20 +354,44 @@ func (m *Manager) createShare(req CreateShareRequest) (*Share, error) {
 		req.Password = ""
 	}
 
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	name := m.allocateUniqueName(info.Name(), "")
 	share := &Share{
 		ID:          newShareID(),
+		Code:        m.allocateUniqueCode(),
 		Path:        target,
-		Name:        info.Name(),
+		Name:        name,
 		IsDir:       info.IsDir(),
+		Visible:     false,
 		Password:    req.Password,
 		CreatedAt:   time.Now(),
 		LastUpdated: time.Now(),
 	}
 
+	m.shares[share.ID] = share
+	return copyShare(share), nil
+}
+
+func (m *Manager) updateShare(id, name string, visible bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.shares[share.ID] = share
-	return share, nil
+
+	share, ok := m.shares[id]
+	if !ok {
+		return errors.New("share not found")
+	}
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("name cannot be empty")
+	}
+
+	share.Name = m.allocateUniqueName(name, id)
+	share.Visible = visible
+	share.LastUpdated = time.Now()
+	return nil
 }
 
 func (m *Manager) deleteShare(id string) bool {
@@ -279,16 +404,46 @@ func (m *Manager) deleteShare(id string) bool {
 	return true
 }
 
-func (m *Manager) getShare(id string) *Share {
+func (m *Manager) getShareByCode(code string) *Share {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	share, ok := m.shares[id]
-	if !ok {
-		return nil
+
+	for _, share := range m.shares {
+		if strings.EqualFold(share.Code, code) {
+			return copyShare(share)
+		}
 	}
 
-	copyValue := *share
-	return &copyValue
+	return nil
+}
+
+func (m *Manager) listVisibleShares() []publicShareCard {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	shares := make([]publicShareCard, 0, len(m.shares))
+	for _, share := range m.shares {
+		if !share.Visible {
+			continue
+		}
+
+		card := publicShareCard{
+			Name: share.Name,
+			Code: share.Code,
+			URL:  "/s/" + share.Code,
+		}
+		if share.IsDir {
+			card.Type = "文件夹"
+		} else {
+			card.Type = "文件"
+		}
+		shares = append(shares, card)
+	}
+
+	sort.Slice(shares, func(i, j int) bool {
+		return strings.ToLower(shares[i].Name) < strings.ToLower(shares[j].Name)
+	})
+	return shares
 }
 
 func (m *Manager) listManageCards() []manageShareCard {
@@ -296,16 +451,20 @@ func (m *Manager) listManageCards() []manageShareCard {
 	defer m.mu.RUnlock()
 
 	cards := make([]manageShareCard, 0, len(m.shares))
-	localURL := fmt.Sprintf("http://127.0.0.1:%d", m.cfg.Port)
 	localIPs := listLocalIPv4s()
 	for _, share := range m.shares {
+		localURL := fmt.Sprintf("http://127.0.0.1:%d/s/%s", m.cfg.Port, share.Code)
 		card := manageShareCard{
-			ID:        share.ID,
-			Name:      share.Name,
-			Path:      share.Path,
-			CreatedAt: share.CreatedAt.Format("2006-01-02 15:04:05"),
-			UpdatedAt: share.LastUpdated.Format("2006-01-02 15:04:05"),
-			LocalURL:  localURL + "/s/" + share.ID,
+			ID:             share.ID,
+			Code:           share.Code,
+			Name:           share.Name,
+			NameInput:      share.Name,
+			Path:           share.Path,
+			CreatedAt:      share.CreatedAt.Format("2006-01-02 15:04:05"),
+			UpdatedAt:      share.LastUpdated.Format("2006-01-02 15:04:05"),
+			LocalURL:       localURL,
+			PublicURL:      fmt.Sprintf("http://127.0.0.1:%d/?code=%s", m.cfg.Port, share.Code),
+			VisibleChecked: share.Visible,
 		}
 		if share.IsDir {
 			card.Type = "文件夹"
@@ -317,9 +476,19 @@ func (m *Manager) listManageCards() []manageShareCard {
 		} else {
 			card.Mode = "只读"
 		}
-		for _, ip := range localIPs {
-			card.NetworkLinks = append(card.NetworkLinks, fmt.Sprintf("http://%s:%d/s/%s", ip, m.cfg.Port, share.ID))
+		if share.Visible {
+			card.Visibility = "首页可见"
+		} else {
+			card.Visibility = "首页隐藏"
 		}
+		for _, ip := range localIPs {
+			card.NetworkLinks = append(card.NetworkLinks, fmt.Sprintf("http://%s:%d/s/%s", ip, m.cfg.Port, share.Code))
+		}
+		card.PrimaryURL = localURL
+		if len(card.NetworkLinks) > 0 {
+			card.PrimaryURL = card.NetworkLinks[0]
+		}
+		card.QRCodeDataURL = buildQRCodeDataURL(card.PrimaryURL)
 		cards = append(cards, card)
 	}
 
@@ -332,12 +501,12 @@ func (m *Manager) listManageCards() []manageShareCard {
 func (m *Manager) renderSharePage(w http.ResponseWriter, r *http.Request, share *Share) {
 	data := sharePageData{
 		Title:          "Web Share",
-		ShareID:        share.ID,
+		ShareCode:      share.Code,
 		SharedName:     share.Name,
 		SharedPath:     share.Path,
 		IsDir:          share.IsDir,
 		UploadEnabled:  share.IsDir && share.Password != "",
-		Address:        fmt.Sprintf("http://%s/s/%s", r.Host, share.ID),
+		Address:        fmt.Sprintf("http://%s/s/%s", r.Host, share.Code),
 		ErrorMessage:   r.URL.Query().Get("error"),
 		SuccessMessage: r.URL.Query().Get("success"),
 		Items:          listItems(share),
@@ -371,7 +540,7 @@ func (m *Manager) serveShareRaw(w http.ResponseWriter, r *http.Request, share *S
 		return
 	}
 
-	serveFileDownload(w, r, share.Path, share.Name)
+	serveFileDownload(w, r, share.Path, filepath.Base(share.Path))
 }
 
 func (m *Manager) handleShareUpload(w http.ResponseWriter, r *http.Request, share *Share) {
@@ -384,35 +553,35 @@ func (m *Manager) handleShareUpload(w http.ResponseWriter, r *http.Request, shar
 		return
 	}
 	if subtle.ConstantTimeCompare([]byte(r.FormValue("password")), []byte(share.Password)) != 1 {
-		http.Redirect(w, r, withShareMessage(share.ID, "error", "密码错误，上传已拒绝"), http.StatusSeeOther)
+		http.Redirect(w, r, withShareMessage(share.Code, "error", "密码错误，上传已拒绝"), http.StatusSeeOther)
 		return
 	}
 	if err := r.ParseMultipartForm(64 << 20); err != nil {
-		http.Redirect(w, r, withShareMessage(share.ID, "error", "无法解析上传请求"), http.StatusSeeOther)
+		http.Redirect(w, r, withShareMessage(share.Code, "error", "无法解析上传请求"), http.StatusSeeOther)
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		http.Redirect(w, r, withShareMessage(share.ID, "error", "请选择要上传的文件"), http.StatusSeeOther)
+		http.Redirect(w, r, withShareMessage(share.Code, "error", "请选择要上传的文件"), http.StatusSeeOther)
 		return
 	}
 	defer file.Close()
 
 	name := filepath.Base(header.Filename)
 	if name == "." || name == "" {
-		http.Redirect(w, r, withShareMessage(share.ID, "error", "无效文件名"), http.StatusSeeOther)
+		http.Redirect(w, r, withShareMessage(share.Code, "error", "无效文件名"), http.StatusSeeOther)
 		return
 	}
 
 	target := filepath.Join(share.Path, name)
 	if err := writeUploadedFile(target, file); err != nil {
-		http.Redirect(w, r, withShareMessage(share.ID, "error", "保存上传文件失败："+err.Error()), http.StatusSeeOther)
+		http.Redirect(w, r, withShareMessage(share.Code, "error", "保存上传文件失败："+err.Error()), http.StatusSeeOther)
 		return
 	}
 
 	m.touchShare(share.ID)
-	http.Redirect(w, r, withShareMessage(share.ID, "success", "上传成功"), http.StatusSeeOther)
+	http.Redirect(w, r, withShareMessage(share.Code, "success", "上传成功"), http.StatusSeeOther)
 }
 
 func (m *Manager) touchShare(id string) {
@@ -423,6 +592,51 @@ func (m *Manager) touchShare(id string) {
 	}
 }
 
+func (m *Manager) allocateUniqueName(baseName, ignoreID string) string {
+	baseName = strings.TrimSpace(baseName)
+	if baseName == "" {
+		baseName = "未命名分享"
+	}
+
+	name := baseName
+	index := 2
+	for m.nameExists(name, ignoreID) {
+		name = fmt.Sprintf("%s (%d)", baseName, index)
+		index++
+	}
+	return name
+}
+
+func (m *Manager) nameExists(name, ignoreID string) bool {
+	for id, share := range m.shares {
+		if id == ignoreID {
+			continue
+		}
+		if strings.EqualFold(share.Name, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Manager) allocateUniqueCode() string {
+	for {
+		code := newShareCode()
+		if !m.codeExists(code) {
+			return code
+		}
+	}
+}
+
+func (m *Manager) codeExists(code string) bool {
+	for _, share := range m.shares {
+		if strings.EqualFold(share.Code, code) {
+			return true
+		}
+	}
+	return false
+}
+
 func listItems(share *Share) []dirItem {
 	info, err := os.Stat(share.Path)
 	if err != nil {
@@ -431,10 +645,10 @@ func listItems(share *Share) []dirItem {
 
 	if !share.IsDir {
 		return []dirItem{{
-			Name:    share.Name,
+			Name:    filepath.Base(share.Path),
 			Size:    formatSize(info.Size()),
 			ModTime: info.ModTime().Format("2006-01-02 15:04"),
-			URL:     fmt.Sprintf("/s/%s/raw", share.ID),
+			URL:     fmt.Sprintf("/s/%s/raw", share.Code),
 		}}
 	}
 
@@ -458,7 +672,7 @@ func listItems(share *Share) []dirItem {
 			item.Size = "folder"
 		} else {
 			item.Size = formatSize(entryInfo.Size())
-			item.URL = fmt.Sprintf("/s/%s/raw?name=%s", share.ID, url.QueryEscape(entry.Name()))
+			item.URL = fmt.Sprintf("/s/%s/raw?name=%s", share.Code, url.QueryEscape(entry.Name()))
 		}
 		items = append(items, item)
 	}
@@ -517,8 +731,8 @@ func formatSize(size int64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(size)/float64(div), "KMGTPE"[exp])
 }
 
-func withShareMessage(shareID, key, value string) string {
-	return fmt.Sprintf("/s/%s?%s=%s", shareID, key, url.QueryEscape(value))
+func withShareMessage(shareCode, key, value string) string {
+	return fmt.Sprintf("/s/%s?%s=%s", shareCode, key, url.QueryEscape(value))
 }
 
 func isLocalRequest(remoteAddr string) bool {
@@ -564,10 +778,45 @@ func listLocalIPv4s() []string {
 	return result
 }
 
+func buildQRCodeDataURL(content string) template.URL {
+	if content == "" {
+		return ""
+	}
+
+	png, err := qrcode.Encode(content, qrcode.Medium, 256)
+	if err != nil {
+		return ""
+	}
+
+	return template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(png))
+}
+
 func newShareID() string {
 	var raw [8]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(raw[:])
+}
+
+func newShareCode() string {
+	const alphabet = "23456789abcdefghjkmnpqrstuvwxyz"
+	var raw [4]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return strings.ToLower(hex.EncodeToString(raw[:])[:6])
+	}
+
+	buf := make([]byte, 6)
+	for i := range buf {
+		buf[i] = alphabet[int(raw[i%len(raw)])%len(alphabet)]
+	}
+	return string(buf)
+}
+
+func copyShare(share *Share) *Share {
+	if share == nil {
+		return nil
+	}
+	copyValue := *share
+	return &copyValue
 }

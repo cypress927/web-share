@@ -1,5 +1,201 @@
 package manager
 
+const homeHTML = `{{define "home"}}<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.Title}}</title>
+  <style>
+    :root {
+      --bg: #efe9dd;
+      --panel: rgba(255,255,255,0.88);
+      --line: #d7cbb8;
+      --text: #241d16;
+      --muted: #6f675d;
+      --accent: #0f676b;
+      --warm: #bf6738;
+      --shadow: 0 20px 60px rgba(43, 31, 18, 0.12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", "PingFang SC", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(191,103,56,0.16), transparent 24%),
+        radial-gradient(circle at bottom right, rgba(15,103,107,0.14), transparent 30%),
+        linear-gradient(135deg, #e6dcc8 0%, #f7f3eb 48%, #ece6dd 100%);
+      padding: 18px;
+    }
+    .shell {
+      max-width: 980px;
+      margin: 0 auto;
+      background: var(--panel);
+      border-radius: 28px;
+      border: 1px solid rgba(255,255,255,0.7);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      backdrop-filter: blur(10px);
+    }
+    .hero {
+      padding: 24px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(135deg, rgba(15,103,107,0.08), rgba(191,103,56,0.08));
+    }
+    .eyebrow {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(15,103,107,0.12);
+      color: var(--accent);
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 14px 0 8px;
+      font-size: clamp(30px, 5vw, 46px);
+    }
+    p { margin: 0; color: var(--muted); line-height: 1.6; }
+    .content {
+      padding: 20px;
+      display: grid;
+      gap: 18px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      padding: 18px;
+      background: rgba(255,255,255,0.72);
+    }
+    .code-form {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      font: inherit;
+    }
+    button {
+      border: 0;
+      border-radius: 14px;
+      padding: 12px 16px;
+      background: var(--accent);
+      color: white;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .status {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: rgba(154,43,43,0.1);
+      color: #9a2b2b;
+      font-size: 14px;
+    }
+    .share-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .share-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px;
+      border-radius: 18px;
+      background: rgba(255,255,255,0.84);
+      border: 1px solid rgba(215,203,184,0.8);
+    }
+    .share-name {
+      margin: 0 0 4px;
+      font-size: 18px;
+    }
+    .meta {
+      color: var(--muted);
+      font-size: 13px;
+      word-break: break-all;
+    }
+    .code-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(191,103,56,0.12);
+      color: var(--warm);
+      font-weight: 700;
+    }
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    a:hover { text-decoration: underline; }
+    .empty {
+      color: var(--muted);
+      text-align: center;
+      padding: 18px 0 4px;
+    }
+    @media (max-width: 720px) {
+      body { padding: 10px; }
+      .hero, .content { padding: 16px; }
+      .code-form { grid-template-columns: 1fr; }
+      .share-item {
+        flex-direction: column;
+        align-items: stretch;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <span class="eyebrow">Web Share</span>
+      <h1>可访问的分享</h1>
+      <p>首页只展示分享者设置为可见的内容。你也可以直接输入分享码进入指定分享。</p>
+    </section>
+    <section class="content">
+      <div class="card">
+        <h2>输入分享码</h2>
+        <form class="code-form" action="/" method="get">
+          <input type="text" name="code" placeholder="例如 a7k2m3" autocomplete="off" required>
+          <button type="submit">打开分享</button>
+        </form>
+        {{if .ErrorMessage}}<div class="status">{{.ErrorMessage}}</div>{{end}}
+      </div>
+      <div class="card">
+        <h2>首页可见的分享</h2>
+        {{if .VisibleShares}}
+        <div class="share-list">
+          {{range .VisibleShares}}
+          <a class="share-item" href="{{.URL}}">
+            <div>
+              <h3 class="share-name">{{.Name}}</h3>
+              <div class="meta">{{.Type}}</div>
+            </div>
+            <span class="code-chip">分享码 {{.Code}}</span>
+          </a>
+          {{end}}
+        </div>
+        {{else}}
+        <div class="empty">当前没有可见的分享。</div>
+        {{end}}
+      </div>
+    </section>
+  </div>
+</body>
+</html>{{end}}
+`
+
 const manageHTML = `{{define "manage"}}<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -31,7 +227,7 @@ const manageHTML = `{{define "manage"}}<!DOCTYPE html>
       padding: 20px;
     }
     .shell {
-      max-width: 1120px;
+      max-width: 1180px;
       margin: 0 auto;
       background: var(--panel);
       border: 1px solid rgba(255,255,255,0.7);
@@ -63,18 +259,17 @@ const manageHTML = `{{define "manage"}}<!DOCTYPE html>
       padding: 22px;
     }
     .card {
+      display: grid;
+      grid-template-columns: 1.3fr 0.7fr;
+      gap: 18px;
       border: 1px solid var(--line);
       border-radius: 24px;
       padding: 18px;
       background: rgba(255,255,255,0.75);
     }
-    .card-top {
-      display: flex;
-      align-items: start;
-      justify-content: space-between;
-      gap: 14px;
-      margin-bottom: 14px;
-    }
+    .name { font-size: 24px; margin: 0 0 6px; }
+    .meta { font-size: 13px; color: var(--muted); word-break: break-all; }
+    .tags { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
     .tag {
       display: inline-block;
       padding: 5px 10px;
@@ -83,48 +278,105 @@ const manageHTML = `{{define "manage"}}<!DOCTYPE html>
       color: var(--warm);
       font-size: 12px;
       font-weight: 700;
-      margin-right: 8px;
     }
-    .mode {
+    .tag.ok {
       background: rgba(31,122,82,0.12);
       color: var(--ok);
     }
-    .name { font-size: 24px; margin: 0 0 4px; }
-    .meta { font-size: 13px; color: var(--muted); word-break: break-all; }
     .section-title { margin: 16px 0 8px; font-size: 14px; color: var(--muted); }
+    .code-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(13,92,99,0.12);
+      color: var(--accent);
+      font-weight: 700;
+    }
     .link-row {
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
       margin-bottom: 8px;
     }
-    .link-chip, button {
-      border: 0;
-      border-radius: 14px;
-      padding: 10px 14px;
-      font: inherit;
-    }
     .link-chip {
       display: inline-block;
+      padding: 10px 14px;
+      border-radius: 14px;
       background: rgba(13,92,99,0.12);
       color: var(--accent);
       text-decoration: none;
+      word-break: break-all;
+    }
+    .controls {
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+    .qr-box {
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 14px;
+      background: rgba(255,255,255,0.84);
+      text-align: center;
+    }
+    .qr-box img {
+      width: 180px;
+      max-width: 100%;
+      border-radius: 14px;
+      background: white;
+      padding: 10px;
+    }
+    form {
+      display: grid;
+      gap: 10px;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      font: inherit;
+    }
+    label.toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+    }
+    .action-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
     }
     button {
-      background: #8f2d2d;
-      color: #fff;
+      border: 0;
+      border-radius: 14px;
+      padding: 12px 16px;
+      font: inherit;
+      font-weight: 600;
       cursor: pointer;
+      background: var(--accent);
+      color: white;
     }
-    button:hover { background: #742020; }
+    button.secondary {
+      background: #8f2d2d;
+    }
     .empty {
       padding: 36px 22px;
       color: var(--muted);
       text-align: center;
     }
-    @media (max-width: 720px) {
+    @media (max-width: 820px) {
       body { padding: 10px; }
       .hero, .cards { padding: 16px; }
-      .card-top { flex-direction: column; }
+      .card { grid-template-columns: 1fr; }
     }
   </style>
   <script>
@@ -145,37 +397,58 @@ const manageHTML = `{{define "manage"}}<!DOCTYPE html>
     <section class="hero">
       <span class="eyebrow">Local Manager</span>
       <h1>正在共享的内容</h1>
-      <p>右键新建的分享会进入这里统一管理。这个页面只允许本机访问，外部访问者只能打开具体分享页。</p>
+      <p>你可以为分享设置短码访问入口、修改显示名称，并决定它是否出现在公开首页。</p>
     </section>
     <section class="cards">
       {{if .Shares}}
         {{range .Shares}}
         <article class="card">
-          <div class="card-top">
-            <div>
-              <h2 class="name">{{.Name}}</h2>
-              <div class="meta">{{.Path}}</div>
-            </div>
-            <div>
+          <div>
+            <h2 class="name">{{.Name}}</h2>
+            <div class="meta">{{.Path}}</div>
+            <div class="tags">
               <span class="tag">{{.Type}}</span>
-              <span class="tag mode">{{.Mode}}</span>
+              <span class="tag ok">{{.Mode}}</span>
+              <span class="tag">{{.Visibility}}</span>
             </div>
+            <div class="section-title">分享码</div>
+            <div class="code-chip">{{.Code}}</div>
+            <div class="section-title">公开首页</div>
+            <div class="link-row">
+              <a class="link-chip" href="{{.PublicURL}}" target="_blank">{{.PublicURL}}</a>
+            </div>
+            <div class="section-title">本机访问</div>
+            <div class="link-row">
+              <a class="link-chip" href="{{.LocalURL}}" target="_blank">{{.LocalURL}}</a>
+            </div>
+            <div class="section-title">局域网访问</div>
+            <div class="link-row">
+              {{range .NetworkLinks}}
+              <a class="link-chip" href="{{.}}" target="_blank">{{.}}</a>
+              {{else}}
+              <span class="meta">未检测到可用局域网 IPv4 地址</span>
+              {{end}}
+            </div>
+            <div class="section-title">时间</div>
+            <div class="meta">创建于 {{.CreatedAt}}，最近活动 {{.UpdatedAt}}</div>
           </div>
-          <div class="meta">创建于 {{.CreatedAt}}，最近活动 {{.UpdatedAt}}</div>
-          <div class="section-title">本机访问</div>
-          <div class="link-row">
-            <a class="link-chip" href="{{.LocalURL}}" target="_blank">{{.LocalURL}}</a>
+          <div class="controls">
+            <div class="qr-box">
+              <img src="{{.QRCodeDataURL}}" alt="Share QR Code">
+              <div class="meta" style="margin-top: 10px;">手机扫码直接打开当前分享</div>
+            </div>
+            <form action="/manage/shares/{{.ID}}/update" method="post">
+              <input type="text" name="name" value="{{.NameInput}}" required>
+              <label class="toggle">
+                <input type="checkbox" name="visible" {{if .VisibleChecked}}checked{{end}}>
+                在首页显示这个分享
+              </label>
+              <div class="action-row">
+                <button type="submit">保存设置</button>
+                <button class="secondary" type="button" onclick="stopShare('{{.ID}}')">停止分享</button>
+              </div>
+            </form>
           </div>
-          <div class="section-title">局域网访问</div>
-          <div class="link-row">
-            {{range .NetworkLinks}}
-            <a class="link-chip" href="{{.}}" target="_blank">{{.}}</a>
-            {{else}}
-            <span class="meta">未检测到可用局域网 IPv4 地址</span>
-            {{end}}
-          </div>
-          <div class="section-title">操作</div>
-          <button type="button" onclick="stopShare('{{.ID}}')">停止分享</button>
         </article>
         {{end}}
       {{else}}
@@ -267,6 +540,18 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       border-radius: 14px;
       background: rgba(11,110,79,0.08);
       word-break: break-all;
+    }
+    .code-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      width: fit-content;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(198,107,61,0.14);
+      color: #8e4a26;
+      font-size: 13px;
+      font-weight: 700;
     }
     .content {
       padding: 24px 28px 32px;
@@ -420,6 +705,7 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       <span class="eyebrow">{{if .IsDir}}Folder Share{{else}}File Share{{end}}</span>
       <h1>{{.SharedName}}</h1>
       <div class="hero-stack">
+        <div class="code-chip">分享码 {{.ShareCode}}</div>
         <div class="meta">路径: {{.SharedPath}}</div>
         <a class="hero-link" href="{{.Address}}">{{.Address}}</a>
       </div>
@@ -452,7 +738,7 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
             </tbody>
           </table>
         {{else}}
-          <a class="download" href="/s/{{.ShareID}}/raw">下载文件</a>
+          <a class="download" href="/s/{{.ShareCode}}/raw">下载文件</a>
         {{end}}
       </div>
       <div class="card">
@@ -460,7 +746,7 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
         {{if .UploadEnabled}}
           <p class="hint">输入分享者设置的上传密码后，可把文件上传到当前共享目录根目录。</p>
           <div class="section-divider"></div>
-          <form action="/s/{{.ShareID}}/upload" method="post" enctype="multipart/form-data">
+          <form action="/s/{{.ShareCode}}/upload" method="post" enctype="multipart/form-data">
             <input type="file" name="file" required>
             <input type="password" name="password" placeholder="上传密码" required>
             <button type="submit">上传文件</button>
