@@ -55,3 +55,44 @@
 - Windows 右键级联菜单不要继续依赖 `SubCommands + 父项下 shell\...` 的混合写法
 - 对 Explorer 来说，`ExtendedSubCommandsKey` 更稳定，也更容易清理和复用
 - 修这类问题时，必须先删除旧注册表节点再重装，仅覆盖写入往往不够
+
+## 右键密码弹窗 VBS 编译失败
+
+### 现象
+
+- 右键文件夹选择 `设置上传密码后分享`
+- 弹出 VBScript 错误：
+  - 脚本 `C:\Users\zhjun\AppData\Local\WebShare\prompt-share.vbs`
+  - 行 `8`
+  - 字符 `54`
+  - 错误 `缺少 )`
+  - 代码 `800A03EE`
+
+### 初看误区
+
+- 脚本内容表面上语法正确
+- 报错位置在 `InputBox(...)` 那一行
+- 很容易误以为是引号转义或括号数量有问题
+
+### 实际原因
+
+- 生成的 `prompt-share.vbs` 使用了 `UTF-8` 写入
+- VBScript 宿主对包含中文内容的 `UTF-8` 脚本兼容性很差
+- 中文字符串在解析时被错误拆分，最终让编译器在 `InputBox(...)` 行报出误导性的“缺少 )”
+
+### 排查方式
+
+- 用 `cscript //nologo prompt-share.vbs ...` 直接执行脚本，读取真实编译错误
+- 用十六进制查看脚本文件，确认文件实际是 `UTF-8` 而不是 `UTF-16 LE with BOM`
+
+### 解决方案
+
+- Go 侧生成脚本时改为 `UTF-16 LE with BOM`
+- PowerShell 安装脚本写入 `.vbs` 时改成 `-Encoding Unicode`
+- 修复后重新写回：
+  - `C:\Users\zhjun\AppData\Local\WebShare\prompt-share.vbs`
+
+### 经验
+
+- VBScript 只要带中文，优先使用 `UTF-16 LE with BOM`
+- 如果脚本“看起来没错”却在中文字符串行附近报语法错误，优先检查编码，而不是先怀疑括号或引号
