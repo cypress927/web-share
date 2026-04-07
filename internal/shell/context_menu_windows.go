@@ -8,14 +8,16 @@ import (
 )
 
 const (
-	fileMenuKey        = `HKCU\Software\Classes\*\shell\web-share`
-	fileReadOnlyKey    = `HKCU\Software\Classes\*\shell\web-share\shell\readonly`
-	fileReadOnlyCmd    = `HKCU\Software\Classes\*\shell\web-share\shell\readonly\command`
-	folderMenuKey      = `HKCU\Software\Classes\Directory\shell\web-share`
-	folderReadOnlyKey  = `HKCU\Software\Classes\Directory\shell\web-share\shell\readonly`
-	folderReadOnlyCmd  = `HKCU\Software\Classes\Directory\shell\web-share\shell\readonly\command`
-	folderPasswordKey  = `HKCU\Software\Classes\Directory\shell\web-share\shell\password`
-	folderPasswordCmd  = `HKCU\Software\Classes\Directory\shell\web-share\shell\password\command`
+	fileMenuKey          = `HKCU\Software\Classes\*\shell\web-share`
+	folderMenuKey        = `HKCU\Software\Classes\Directory\shell\web-share`
+	fileCommandStoreKey  = `HKCU\Software\Classes\WebShare.FileContextMenu`
+	fileReadOnlyKey      = `HKCU\Software\Classes\WebShare.FileContextMenu\shell\readonly`
+	fileReadOnlyCmd      = `HKCU\Software\Classes\WebShare.FileContextMenu\shell\readonly\command`
+	folderCommandStore   = `HKCU\Software\Classes\WebShare.DirectoryContextMenu`
+	folderReadOnlyKey    = `HKCU\Software\Classes\WebShare.DirectoryContextMenu\shell\readonly`
+	folderReadOnlyCmd    = `HKCU\Software\Classes\WebShare.DirectoryContextMenu\shell\readonly\command`
+	folderPasswordKey    = `HKCU\Software\Classes\WebShare.DirectoryContextMenu\shell\password`
+	folderPasswordCmd    = `HKCU\Software\Classes\WebShare.DirectoryContextMenu\shell\password\command`
 )
 
 func InstallContextMenu(exePath string) error {
@@ -23,24 +25,31 @@ func InstallContextMenu(exePath string) error {
 	passwordCommand := buildPasswordCommand(exePath)
 
 	commands := [][]string{
-		{"add", fileMenuKey, "/ve", "/d", "通过 Web 分享", "/f"},
+		{"delete", fileMenuKey, "/f"},
+		{"delete", folderMenuKey, "/f"},
+		{"delete", fileCommandStoreKey, "/f"},
+		{"delete", folderCommandStore, "/f"},
+		{"add", fileMenuKey, "/f"},
 		{"add", fileMenuKey, "/v", "MUIVerb", "/d", "通过 Web 分享", "/f"},
-		{"add", fileMenuKey, "/v", "SubCommands", "/d", "", "/f"},
 		{"add", fileMenuKey, "/v", "Icon", "/d", exePath, "/f"},
-		{"add", fileReadOnlyKey, "/ve", "/d", "只读分享", "/f"},
-		{"add", fileReadOnlyCmd, "/ve", "/d", readOnlyCommand, "/f"},
-		{"add", folderMenuKey, "/ve", "/d", "通过 Web 分享", "/f"},
+		{"add", fileMenuKey, "/v", "ExtendedSubCommandsKey", "/d", "WebShare.FileContextMenu", "/f"},
+		{"add", folderMenuKey, "/f"},
 		{"add", folderMenuKey, "/v", "MUIVerb", "/d", "通过 Web 分享", "/f"},
-		{"add", folderMenuKey, "/v", "SubCommands", "/d", "", "/f"},
 		{"add", folderMenuKey, "/v", "Icon", "/d", exePath, "/f"},
-		{"add", folderReadOnlyKey, "/ve", "/d", "只读分享", "/f"},
+		{"add", folderMenuKey, "/v", "ExtendedSubCommandsKey", "/d", "WebShare.DirectoryContextMenu", "/f"},
+		{"add", fileReadOnlyKey, "/v", "MUIVerb", "/d", "只读分享", "/f"},
+		{"add", fileReadOnlyCmd, "/ve", "/d", readOnlyCommand, "/f"},
+		{"add", folderReadOnlyKey, "/v", "MUIVerb", "/d", "只读分享", "/f"},
 		{"add", folderReadOnlyCmd, "/ve", "/d", readOnlyCommand, "/f"},
-		{"add", folderPasswordKey, "/ve", "/d", "设置上传密码后分享", "/f"},
+		{"add", folderPasswordKey, "/v", "MUIVerb", "/d", "设置上传密码后分享", "/f"},
 		{"add", folderPasswordCmd, "/ve", "/d", passwordCommand, "/f"},
 	}
 
 	for _, args := range commands {
 		if err := exec.Command("reg", args...).Run(); err != nil {
+			if args[0] == "delete" {
+				continue
+			}
 			return fmt.Errorf("run reg %v: %w", args, err)
 		}
 	}
@@ -60,6 +69,8 @@ func UninstallContextMenu() error {
 	commands := [][]string{
 		{"delete", fileMenuKey, "/f"},
 		{"delete", folderMenuKey, "/f"},
+		{"delete", fileCommandStoreKey, "/f"},
+		{"delete", folderCommandStore, "/f"},
 	}
 
 	for _, args := range commands {
