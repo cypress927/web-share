@@ -3,7 +3,31 @@ Param(
 )
 
 $resolved = (Resolve-Path $ExePath).Path
-$passwordCommand = "powershell.exe -NoProfile -WindowStyle Hidden -Command ""Add-Type -AssemblyName Microsoft.VisualBasic; `$p=[Microsoft.VisualBasic.Interaction]::InputBox('请输入上传密码。留空则取消分享。','Web Share 上传密码',''); if ([string]::IsNullOrWhiteSpace(`$p)) { exit 0 }; Start-Process -WindowStyle Hidden -FilePath '$resolved' -ArgumentList @('enqueue','-password',`$p,'%1')"""
+$scriptDir = Join-Path $env:LOCALAPPDATA "WebShare"
+$scriptPath = Join-Path $scriptDir "prompt-share.vbs"
+$scriptBody = @'
+Dim exePath, targetPath, passwordText, shell, quote, commandText
+If WScript.Arguments.Count < 2 Then
+    WScript.Quit 1
+End If
+
+exePath = WScript.Arguments(0)
+targetPath = WScript.Arguments(1)
+passwordText = InputBox("请输入上传密码。留空则取消分享。", "Web Share 上传密码", "")
+
+If Len(Trim(passwordText)) = 0 Then
+    WScript.Quit 0
+End If
+
+Set shell = CreateObject("WScript.Shell")
+quote = Chr(34)
+commandText = quote & exePath & quote & " enqueue -password " & quote & Replace(passwordText, quote, quote & quote) & quote & " " & quote & targetPath & quote
+shell.Run commandText, 0, False
+'@
+
+New-Item -ItemType Directory -Force -Path $scriptDir | Out-Null
+Set-Content -Path $scriptPath -Value $scriptBody -Encoding Unicode
+$passwordCommand = "wscript.exe `"$scriptPath`" `"$resolved`" `"%1`""
 
 reg delete "HKCU\Software\Classes\*\shell\web-share" /f
 reg delete "HKCU\Software\Classes\Directory\shell\web-share" /f

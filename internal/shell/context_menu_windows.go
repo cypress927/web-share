@@ -4,7 +4,10 @@ package shell
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"unicode/utf16"
 )
 
 const (
@@ -22,7 +25,10 @@ const (
 
 func InstallContextMenu(exePath string) error {
 	readOnlyCommand := fmt.Sprintf(`"%s" enqueue "%%1"`, exePath)
-	passwordCommand := buildPasswordCommand(exePath)
+	passwordCommand, err := buildPasswordCommand(exePath)
+	if err != nil {
+		return err
+	}
 
 	commands := [][]string{
 		{"delete", fileMenuKey, "/f"},
@@ -57,12 +63,13 @@ func InstallContextMenu(exePath string) error {
 	return nil
 }
 
-func buildPasswordCommand(exePath string) string {
-	return fmt.Sprintf(
-		`powershell.exe -NoProfile -WindowStyle Hidden -Command "Add-Type -AssemblyName Microsoft.VisualBasic; $p=[Microsoft.VisualBasic.Interaction]::InputBox('请输入上传密码。留空则取消分享。','Web Share 上传密码',''); if ([string]::IsNullOrWhiteSpace($p)) { exit 0 }; Start-Process -WindowStyle Hidden -FilePath '%s' -ArgumentList @('enqueue','-password',$p,'%s')"`,
-		exePath,
-		`%1`,
-	)
+func buildPasswordCommand(exePath string) (string, error) {
+	scriptPath, err := ensurePasswordPromptScript()
+	if err != nil {
+		return "", fmt.Errorf("create password prompt script: %w", err)
+	}
+
+	return fmt.Sprintf(`wscript.exe "%s" "%s" "%%1"`, scriptPath, exePath), nil
 }
 
 func UninstallContextMenu() error {
@@ -80,4 +87,57 @@ func UninstallContextMenu() error {
 	}
 
 	return nil
+}
+
+func ensurePasswordPromptScript() (string, error) {
+	baseDir := os.Getenv("LOCALAPPDATA")
+	if baseDir == "" {
+		var err error
+		baseDir, err = os.UserConfigDir()
+		if err != nil {
+			return "", err
+		}
+	}
+
+	scriptDir := filepath.Join(baseDir, "WebShare")
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		return "", err
+	}
+
+	scriptPath := filepath.Join(scriptDir, "prompt-share.vbs")
+	if err := os.WriteFile(scriptPath, encodeUTF16LE(passwordPromptVBScript), 0o644); err != nil {
+		return "", err
+	}
+
+	return scriptPath, nil
+}
+
+const passwordPromptVBScript = `Dim exePath, targetPath, passwordText, shell, quote, commandText
+If WScript.Arguments.Count < 2 Then
+    WScript.Quit 1
+End If
+
+exePath = WScript.Arguments(0)
+targetPath = WScript.Arguments(1)
+passwordText = InputBox("请输入上传密码。留空则取消分享。", "Web Share 上传密码", "")
+
+If Len(Trim(passwordText)) = 0 Then
+    WScript.Quit 0
+End If
+
+Set shell = CreateObject("WScript.Shell")
+quote = Chr(34)
+commandText = quote & exePath & quote & " enqueue -password " & quote & Replace(passwordText, quote, quote & quote) & quote & " " & quote & targetPath & quote
+shell.Run commandText, 0, False
+`
+
+func encodeUTF16LE(text string) []byte {
+	encoded := utf16.Encode([]rune(text))
+	buf := make([]byte, 2, 2+len(encoded)*2)
+	buf[0] = 0xFF
+	buf[1] = 0xFE
+	for _, r := range encoded {
+		buf = append(buf, byte(r), byte(r>>8))
+	}
+	return buf
 }

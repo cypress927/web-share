@@ -253,6 +253,21 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       font-size: 14px;
       word-break: break-all;
     }
+    .hero-stack {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .hero-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      max-width: 100%;
+      padding: 10px 14px;
+      border-radius: 14px;
+      background: rgba(11,110,79,0.08);
+      word-break: break-all;
+    }
     .content {
       padding: 24px 28px 32px;
       display: grid;
@@ -294,6 +309,14 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       border-bottom: 1px solid rgba(215,200,178,0.7);
     }
     th { color: var(--muted); font-weight: 600; }
+    td:first-child {
+      word-break: break-word;
+    }
+    .section-divider {
+      height: 1px;
+      margin: 16px 0;
+      background: rgba(215,200,178,0.7);
+    }
     a {
       color: var(--accent-strong);
       text-decoration: none;
@@ -346,6 +369,48 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       body { padding: 12px; }
       .content { grid-template-columns: 1fr; padding: 16px; }
       .hero { padding: 20px 18px 14px; }
+      .card { padding: 16px; }
+      table, thead, tbody, tr, th, td {
+        display: block;
+        width: 100%;
+      }
+      thead {
+        display: none;
+      }
+      tbody {
+        display: grid;
+        gap: 12px;
+      }
+      tr {
+        padding: 14px;
+        border: 1px solid rgba(215,200,178,0.7);
+        border-radius: 16px;
+        background: rgba(255,255,255,0.82);
+      }
+      td {
+        padding: 0;
+        border: 0;
+      }
+      td + td {
+        margin-top: 8px;
+      }
+      td:nth-child(1)::before,
+      td:nth-child(2)::before,
+      td:nth-child(3)::before {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0.02em;
+      }
+      td:nth-child(1)::before { content: "名称"; }
+      td:nth-child(2)::before { content: "大小"; }
+      td:nth-child(3)::before { content: "修改时间"; }
+      .download,
+      button {
+        width: 100%;
+        justify-content: center;
+      }
     }
   </style>
 </head>
@@ -354,8 +419,10 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
     <section class="hero">
       <span class="eyebrow">{{if .IsDir}}Folder Share{{else}}File Share{{end}}</span>
       <h1>{{.SharedName}}</h1>
-      <div class="meta">路径: {{.SharedPath}}</div>
-      <div class="meta">访问地址: <a href="{{.Address}}">{{.Address}}</a></div>
+      <div class="hero-stack">
+        <div class="meta">路径: {{.SharedPath}}</div>
+        <a class="hero-link" href="{{.Address}}">{{.Address}}</a>
+      </div>
     </section>
     <section class="content">
       <div class="card">
@@ -392,6 +459,7 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
         <h2>{{if .UploadEnabled}}上传入口{{else}}访问模式{{end}}</h2>
         {{if .UploadEnabled}}
           <p class="hint">输入分享者设置的上传密码后，可把文件上传到当前共享目录根目录。</p>
+          <div class="section-divider"></div>
           <form action="/s/{{.ShareID}}/upload" method="post" enctype="multipart/form-data">
             <input type="file" name="file" required>
             <input type="password" name="password" placeholder="上传密码" required>
