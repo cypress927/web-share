@@ -11,9 +11,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"web-share/internal/manager"
+	"web-share/internal/notify"
 	"web-share/internal/shell"
 	"web-share/internal/tray"
 )
@@ -70,12 +72,29 @@ func runEnqueue(args []string) error {
 		return fmt.Errorf("stat target path: %w", err)
 	}
 
-	if err := ensureManager(); err != nil {
+	if runtime.GOOS == "windows" {
+		if manager.IsReachable() {
+			_ = notify.Info("Web Share", "正在添加分享...")
+		} else {
+			_ = notify.Info("Web Share", "正在启动 Web Share...")
+		}
+	}
+
+	managerStarted, err := ensureManager()
+	if err != nil {
+		if runtime.GOOS == "windows" {
+			_ = notify.Error("Web Share", "启动失败："+err.Error())
+		}
 		return err
 	}
 
 	if runtime.GOOS == "windows" {
-		_ = tray.EnsureStarted()
+		if err := tray.EnsureStarted(); err != nil {
+			_ = notify.Error("Web Share", "托盘启动失败："+err.Error())
+		}
+		if managerStarted {
+			_ = notify.Info("Web Share", "Web Share 已启动")
+		}
 	}
 
 	reqBody, err := json.Marshal(manager.CreateShareRequest{
@@ -94,35 +113,54 @@ func runEnqueue(args []string) error {
 
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if runtime.GOOS == "windows" {
+			reason := strings.TrimSpace(string(body))
+			if reason == "" {
+				reason = resp.Status
+			}
+			_ = notify.Error("Web Share", "分享添加失败："+reason)
+		}
 		return fmt.Errorf("enqueue share failed: %s", bytes.TrimSpace(body))
+	}
+
+	if runtime.GOOS == "windows" {
+		var result struct {
+			Name string `json:"name"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&result)
+		shareName := result.Name
+		if shareName == "" {
+			shareName = filepath.Base(target)
+		}
+		_ = notify.Info("Web Share", "分享已添加："+shareName)
 	}
 
 	return nil
 }
 
-func ensureManager() error {
+func ensureManager() (bool, error) {
 	if manager.IsReachable() {
-		return nil
+		return false, nil
 	}
 
 	exePath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("resolve executable: %w", err)
+		return false, fmt.Errorf("resolve executable: %w", err)
 	}
 
 	if err := shell.StartDetached(exePath, "run-manager"); err != nil {
-		return fmt.Errorf("start manager: %w", err)
+		return false, fmt.Errorf("start manager: %w", err)
 	}
 
 	deadline := time.Now().Add(6 * time.Second)
 	for time.Now().Before(deadline) {
 		if manager.IsReachable() {
-			return nil
+			return true, nil
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	return errors.New("manager did not become ready in time")
+	return false, errors.New("manager did not become ready in time")
 }
 
 func runInstallContextMenu(args []string) error {

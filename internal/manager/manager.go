@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -133,6 +134,7 @@ func Run(cfg Config) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", mgr.handleHome)
 	mux.HandleFunc("/api/ping", mgr.handlePing)
+	mux.HandleFunc("/api/shutdown", mgr.handleShutdown)
 	mux.HandleFunc("/api/shares", mgr.handleCreateShare)
 	mux.HandleFunc("/api/shares/", mgr.handleShareAPI)
 	mux.HandleFunc("/manage", mgr.handleManage)
@@ -204,6 +206,24 @@ func (m *Manager) handlePing(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("ok"))
 }
 
+func (m *Manager) handleShutdown(w http.ResponseWriter, r *http.Request) {
+	if !isLocalRequest(r.RemoteAddr) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = m.server.Shutdown(ctx)
+	}()
+}
+
 func (m *Manager) handleCreateShare(w http.ResponseWriter, r *http.Request) {
 	if !isLocalRequest(r.RemoteAddr) {
 		http.Error(w, "forbidden", http.StatusForbidden)
@@ -231,6 +251,7 @@ func (m *Manager) handleCreateShare(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{
 		"id":   share.ID,
 		"code": share.Code,
+		"name": share.Name,
 		"url":  fmt.Sprintf("/s/%s", share.Code),
 	})
 }
