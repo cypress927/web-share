@@ -36,21 +36,27 @@ function Wait-ManagerReady {
 
 function Set-ManagerDefaultLanguage {
     param([string]$Lang)
-    $body = "default_lang=$([uri]::EscapeDataString($Lang))"
-    $resp = Invoke-WebRequest `
-        -Uri "http://127.0.0.1:21910/manage/settings/language" `
-        -Method Post `
-        -ContentType "application/x-www-form-urlencoded" `
-        -Body $body `
-        -UseBasicParsing `
-        -MaximumRedirection 0 `
-        -ErrorAction SilentlyContinue
 
-    if ($null -eq $resp) {
-        return $false
+    $body = "default_lang=$([uri]::EscapeDataString($Lang))"
+    try {
+        $resp = Invoke-WebRequest `
+            -Uri "http://127.0.0.1:21910/manage/settings/language" `
+            -Method Post `
+            -ContentType "application/x-www-form-urlencoded" `
+            -Body $body `
+            -UseBasicParsing `
+            -MaximumRedirection 0 `
+            -ErrorAction Stop
+        $statusCode = [int]$resp.StatusCode
+    } catch {
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        } else {
+            return $false
+        }
     }
 
-    return ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 400) -or $resp.StatusCode -eq 302 -or $resp.StatusCode -eq 303
+    return ($statusCode -ge 200 -and $statusCode -lt 400) -or $statusCode -eq 302 -or $statusCode -eq 303
 }
 
 function Get-Message {
