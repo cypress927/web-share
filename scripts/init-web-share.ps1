@@ -1,7 +1,6 @@
 Param(
     [string]$ExePath = ".\web-share.exe",
-    [ValidateSet("en-US", "zh-CN")]
-    [string]$Language = "en-US",
+    [string]$Language = "",
     [switch]$InstallStartupTask = $true,
     [string]$TaskName = "WebShare.AutoStart",
     [switch]$ForceTask,
@@ -73,6 +72,26 @@ function Get-Message {
         default { return "" }
     }
 }
+
+function Resolve-LanguageChoice {
+    param([string]$Lang)
+
+    if ($Lang -eq "en-US" -or $Lang -eq "zh-CN") {
+        return $Lang
+    }
+
+    Write-Host "Select language / 选择语言:"
+    Write-Host "1. English (en-US)"
+    Write-Host "2. 中文 (zh-CN)"
+    $choice = Read-Host "Enter 1 or 2"
+
+    switch ($choice) {
+        "2" { return "zh-CN" }
+        default { return "en-US" }
+    }
+}
+
+$Language = Resolve-LanguageChoice -Lang $Language
 
 $resolvedExe = (Resolve-Path $ExePath).Path
 if (-not (Test-Path -LiteralPath $resolvedExe)) {

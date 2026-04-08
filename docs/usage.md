@@ -1,82 +1,294 @@
-# 使用说明
+# Usage / 使用说明
 
-## 项目用途
+## English
 
-`web-share` 是一个面向 Windows 的本地局域网分享工具。
+### What It Does
 
-它可以把文件或文件夹通过 HTTP 临时共享出去，并集成到 Windows 右键菜单中；所有分享由后台管理器统一维护，通过托盘进入管理页面。
+`web-share` is a Windows LAN sharing tool.
 
-## 核心行为
+It lets you share files, folders, and clipboard content over HTTP from Windows context menu or tray, while a local manager process keeps every share in one place.
 
-- 文件分享始终只读
-- 文件夹默认只读
-- 文件夹只有设置上传密码时才允许上传
-- 托盘可直接分享剪贴板（文件/文件夹/文本/图片）
-- 分享默认首页隐藏
-- 分享支持短分享码
-- 管理页面通过托盘图标进入
+### Core Rules
 
-## 首次使用
+- File shares are always read-only
+- Folder shares are read-only unless upload password is set
+- Clipboard text/image shares are snapshots
+- New shares are hidden from public home page by default
+- Management page is accessed from tray
 
-先构建程序：
+### Build
 
 ```powershell
 go build -ldflags="-H=windowsgui" -o .\web-share.exe .\cmd\web-share
 ```
 
-推荐直接使用初始化脚本：
+### First-Time Setup
+
+Recommended:
 
 ```powershell
-.\scripts\init-web-share.ps1 -ExePath .\web-share.exe -Language en-US
+.\scripts\init-web-share.ps1 -ExePath .\web-share.exe
 ```
 
-初始化脚本会完成：
+If `-Language` is omitted, the script will ask you to choose:
 
-- 安装右键菜单
-- 设置系统默认语言
-- 可选安装开机自启计划任务
-- 可选立即启动后台管理器和托盘
+- `1` -> `en-US`
+- `2` -> `zh-CN`
 
-如果只想单独安装右键菜单，也可以：
+Default behavior:
+
+- `-InstallStartupTask` is enabled by default
+- `-StartNow` is enabled by default
+- `-NotifyStart` is enabled by default
+
+If you want to disable startup-task installation or immediate start explicitly:
+
+```powershell
+.\scripts\init-web-share.ps1 -ExePath .\web-share.exe -InstallStartupTask:$false -StartNow:$false
+```
+
+It will:
+
+- Install context menu
+- Set default language
+- Optionally install startup scheduled task
+- Optionally start manager and tray immediately
+- If manager is not already running, the script may start it temporarily in order to save the default language
+- If `-StartNow:$false` is used and manager was started only temporarily by the script, it will be shut down again at the end
+
+If you want to install context menu only:
 
 ```powershell
 .\web-share.exe install-context-menu -exe .\web-share.exe -lang en-US
-```
-
-或：
-
-```powershell
 .\scripts\install-context-menu.ps1 -ExePath .\web-share.exe -Language en-US
 ```
 
-补充说明：
+If your binary does not support `-lang`, rebuild it first.
 
-- `-Language` 支持 `en-US` 和 `zh-CN`
-- 如果当前 `web-share.exe` 是旧版本且不支持 `-lang` 参数，需要先重新编译
+### Context Menu
 
-如果右键菜单没有立刻刷新，可以重启 `explorer.exe`，或者注销后重新登录。
+English:
 
-## 右键菜单用法
+- File: `Share via Web > Read-Only Share`
+- Folder: `Share via Web > Read-Only Share`
+- Folder: `Share via Web > Share with Upload Password`
 
-安装完成后，菜单语言会跟随你安装时传入的语言：
+Chinese:
 
-- 英文：
-  - 文件：`Share via Web > Read-Only Share`
-  - 文件夹：`Share via Web > Read-Only Share`
-  - 文件夹：`Share via Web > Share with Upload Password`
-- 中文：
-  - 文件：`通过 Web 分享 > 只读分享`
-  - 文件夹：`通过 Web 分享 > 只读分享`
-  - 文件夹：`通过 Web 分享 > 设置上传密码后分享`
+- 文件：`通过 Web 分享 > 只读分享`
+- 文件夹：`通过 Web 分享 > 只读分享`
+- 文件夹：`通过 Web 分享 > 设置上传密码后分享`
 
-说明：
+### Runtime Behavior
 
-- 选择 `只读分享` 后，程序会在后台创建分享任务
-- 选择 `设置上传密码后分享` 后，会弹出密码输入框
-- 输入密码后，访问者打开该文件夹分享页时会看到上传入口
-- 留空则取消本次分享
+When you create a share from context menu:
 
-## 启动行为
+- Manager starts automatically if not running
+- Tray starts automatically if not running
+- Management page does not open automatically
+
+Manager URL:
+
+```text
+http://127.0.0.1:21910/manage
+```
+
+Public home page:
+
+```text
+http://127.0.0.1:21910/
+```
+
+Share page:
+
+```text
+http://<LAN-IP>:21910/s/<share-code>
+```
+
+### Share Pages
+
+- File shares can be downloaded directly
+- Text files can be previewed
+- Image files can be previewed
+- File downloads support resume
+- Folder shares support subfolder browsing
+- Root folder and subfolders can be archived as ZIP
+- Password-enabled folders show upload entry
+
+### Upload
+
+When upload password is enabled, folder share page supports:
+
+- Single file upload
+- Folder upload
+- Sequential chunk upload
+- Upload progress bar
+
+Rules:
+
+- Existing files are not overwritten
+- Upload is rejected if current folder or share root is missing
+- Missing folders are not recreated silently
+
+### Tray
+
+Current tray menu:
+
+- `Open Manager`
+- `Share Clipboard`
+- `Exit Program`
+
+Clipboard share priority:
+
+- File/folder list
+- Image
+- Text
+
+Default clipboard titles:
+
+- Text: `Text: <first line>`
+- Image: `Image: <timestamp>`
+
+### CLI
+
+```powershell
+.\web-share.exe enqueue C:\path\to\file.txt
+.\web-share.exe enqueue C:\path\to\folder
+.\web-share.exe enqueue -password 123456 C:\path\to\folder
+.\web-share.exe tray
+.\web-share.exe run-manager
+```
+
+### Start Script and Auto Start
+
+Manual start:
+
+```powershell
+.\scripts\start-web-share.ps1 -ExePath .\web-share.exe -Language en-US
+```
+
+Behavior:
+
+- Starts manager and tray
+- Shows startup success notification
+- Avoids relaunching manager if already running
+
+Install logon startup task:
+
+```powershell
+.\scripts\install-startup-task.ps1 -ExePath .\web-share.exe -Language en-US
+```
+
+Remove task:
+
+```powershell
+.\scripts\uninstall-startup-task.ps1 -TaskName WebShare.AutoStart
+```
+
+### Uninstall
+
+Remove context menu:
+
+```powershell
+.\web-share.exe uninstall-context-menu
+.\scripts\uninstall-context-menu.ps1 -ExePath .\web-share.exe
+```
+
+Unified uninstall:
+
+```powershell
+.\scripts\uninstall-all.ps1 -ExePath .\web-share.exe
+.\scripts\uninstall-all.ps1 -ExePath .\web-share.exe -RemoveData
+```
+
+The unified uninstall script removes:
+
+- Context menu
+- Startup task
+- Running manager/tray processes
+- Generated prompt script
+- Optional local data directory
+
+## 中文
+
+### 项目用途
+
+`web-share` 是一个面向 Windows 的本地局域网分享工具。
+
+它可以把文件、文件夹和剪贴板内容通过 HTTP 临时共享出去，并集成到 Windows 右键菜单中；所有分享由后台管理器统一维护，通过托盘进入管理页面。
+
+### 核心规则
+
+- 文件分享始终只读
+- 文件夹默认只读，设置上传密码后才允许上传
+- 剪贴板文本/图片分享是快照
+- 新建分享默认首页隐藏
+- 管理页面通过托盘图标进入
+
+### 构建
+
+```powershell
+go build -ldflags="-H=windowsgui" -o .\web-share.exe .\cmd\web-share
+```
+
+### 首次使用
+
+推荐直接使用初始化脚本：
+
+```powershell
+.\scripts\init-web-share.ps1 -ExePath .\web-share.exe
+```
+
+如果不传 `-Language`，脚本会提示你选择：
+
+- `1` -> `en-US`
+- `2` -> `zh-CN`
+
+默认行为：
+
+- `-InstallStartupTask` 默认开启
+- `-StartNow` 默认开启
+- `-NotifyStart` 默认开启
+
+如果你希望显式关闭“安装开机自启”或“立即启动”，请传：
+
+```powershell
+.\scripts\init-web-share.ps1 -ExePath .\web-share.exe -InstallStartupTask:$false -StartNow:$false
+```
+
+初始化脚本会：
+
+- 安装右键菜单
+- 设置默认语言
+- 可选安装开机自启计划任务
+- 可选立即启动后台管理器和托盘
+- 如果 manager 当前未运行，脚本可能会临时拉起 manager 用于保存默认语言
+- 如果传入 `-StartNow:$false`，且 manager 只是被脚本临时拉起，脚本结束时会再次关闭它
+
+如果只想单独安装右键菜单：
+
+```powershell
+.\web-share.exe install-context-menu -exe .\web-share.exe -lang zh-CN
+.\scripts\install-context-menu.ps1 -ExePath .\web-share.exe -Language zh-CN
+```
+
+如果当前 `web-share.exe` 还不支持 `-lang`，请先重新编译。
+
+### 右键菜单
+
+英文：
+
+- 文件：`Share via Web > Read-Only Share`
+- 文件夹：`Share via Web > Read-Only Share`
+- 文件夹：`Share via Web > Share with Upload Password`
+
+中文：
+
+- 文件：`通过 Web 分享 > 只读分享`
+- 文件夹：`通过 Web 分享 > 只读分享`
+- 文件夹：`通过 Web 分享 > 设置上传密码后分享`
+
+### 启动行为
 
 当你通过右键菜单发起分享时：
 
@@ -84,48 +296,35 @@ go build -ldflags="-H=windowsgui" -o .\web-share.exe .\cmd\web-share
 - 如果托盘未启动，程序也会自动在后台启动托盘
 - 不会自动打开管理页面
 
-## 托盘用法
-
-程序启动后会出现托盘图标。
-
-当前托盘菜单提供：
-
-- `打开管理页面`
-- `分享当前剪贴板`
-- `退出程序`
-
-管理页面地址固定为：
+管理页面地址：
 
 ```text
 http://127.0.0.1:21910/manage
 ```
 
-公开首页地址固定为：
+公开首页地址：
 
 ```text
 http://127.0.0.1:21910/
 ```
 
-## 分享页面
-
-每个分享任务都有独立地址，例如：
+分享页地址：
 
 ```text
 http://<局域网IP>:21910/s/<share-code>
 ```
 
-访问者打开后：
+### 分享页面
 
-- 文件分享页可以直接下载文件
-- 文本文件会直接显示预览内容
-- 图片文件会直接显示预览图
+- 文件分享页可直接下载
+- 文本文件可直接预览
+- 图片文件可直接预览
 - 文件下载支持断点续传
-- 文件夹分享页可以浏览子目录
-- 文件夹分享页可以下载整个分享根目录
-- 文件夹列表中的子文件夹可以单独打包下载
-- 如果该文件夹分享设置了上传密码，则页面会显示上传入口
+- 文件夹支持子目录浏览
+- 根目录和子目录都支持打包下载
+- 设置上传密码后会显示上传入口
 
-## 上传能力
+### 上传能力
 
 启用上传密码后，文件夹分享页支持：
 
@@ -134,170 +333,87 @@ http://<局域网IP>:21910/s/<share-code>
 - 顺序分片上传
 - 上传进度条
 
-补充说明：
+规则：
 
-- 上传不会覆盖同名文件
-- 当前浏览目录或分享根目录失效时，上传会被拒绝
-- 不会因为上传而自动把失效目录重新创建出来
+- 不覆盖同名文件
+- 当前目录或共享根目录失效时拒绝上传
+- 不会静默重建失效目录
 
-## 首页与管理页
+### 托盘
 
-### 首页
+当前托盘菜单：
 
-- 首页只显示被设置为“可见”的分享
-- 可以输入分享码直接进入指定分享
-- 对可预览内容支持直接展示：
-  - 文本摘要 + 一键复制
-  - 图片缩略图
-  - 单文件名/大小 + 一键下载
-- 如果某个可见分享已失效，首页会显示 `已失效`
+- `打开管理页面`
+- `分享当前剪贴板`
+- `退出程序`
 
-### 管理页
+剪贴板分享优先级：
 
-- 仅允许本机访问
-- 可以查看所有当前分享
-- 可直接查看文本摘要和图片缩略图
-- 可以修改分享名称
-- 可以切换首页可见 / 首页隐藏
-- 可以停止单个分享
-- 会显示本机地址、局域网地址和二维码
-
-## 剪贴板分享行为
-
-托盘点击 `分享当前剪贴板` 时按优先级处理：
-
-- 若剪贴板里是文件/文件夹列表：按路径创建普通文件/文件夹分享（支持多选）
-- 否则若是图片：创建剪贴板图片快照分享
-- 否则若是文本：创建剪贴板文本快照分享
+- 文件/文件夹列表
+- 图片
+- 文本
 
 默认命名：
 
-- 文本：`文本: <首行摘要>`（超长截断）
-- 图片：`图片: <时间>`
+- 文本：`Text: <首行摘要>`
+- 图片：`Image: <时间>`
 
-补充边界：
-
-- 若剪贴板包含多个文件/文件夹，会逐个创建多个独立分享
-- 多文件创建时如果中途失败，已创建的分享不会自动回滚
-- 剪贴板文本/图片分享是快照，不会随着后续复制内容变化
-
-## 失效分享行为
-
-当前分享不是文件快照，而是指向实时路径。
-
-这意味着：
-
-- 如果目录内容发生变化，刷新后会看到最新内容
-- 如果被分享的文件或文件夹被移动或删除，访问页会给出明确提示
-
-目前已处理的行为：
-
-- 分享根路径不存在：
-  - 分享页显示“该分享对应的文件或文件夹已不存在”
-- 当前子目录不存在：
-  - 回到上一级页面并显示错误提示
-- 下载文件时目标不存在：
-  - 回到分享页并显示错误提示
-- 打包下载文件夹时目标不存在：
-  - 回到分享页并显示错误提示
-
-## 命令行用法
-
-手动创建分享：
+### 命令行
 
 ```powershell
 .\web-share.exe enqueue C:\path\to\file.txt
 .\web-share.exe enqueue C:\path\to\folder
 .\web-share.exe enqueue -password 123456 C:\path\to\folder
-```
-
-手动启动托盘：
-
-```powershell
 .\web-share.exe tray
-```
-
-手动启动后台管理器：
-
-```powershell
 .\web-share.exe run-manager
 ```
 
-使用脚本同时启动管理器和托盘：
+### 启动脚本与开机自启
+
+手动启动：
 
 ```powershell
-.\scripts\start-web-share.ps1 -ExePath .\web-share.exe -Language en-US
+.\scripts\start-web-share.ps1 -ExePath .\web-share.exe -Language zh-CN
 ```
 
 行为说明：
 
-- 会同时启动后台管理器和托盘
-- 启动完成后会弹出成功通知
-- 若后台管理器已运行，不会重复拉起
-- `-Language` 会影响通知文案
+- 会启动后台管理器和托盘
+- 启动完成后弹出成功通知
+- 管理器已运行时不会重复启动
 
-## 卸载右键菜单
-
-```powershell
-.\web-share.exe uninstall-context-menu
-```
-
-或：
+安装计划任务：
 
 ```powershell
-.\scripts\uninstall-context-menu.ps1 -ExePath .\web-share.exe
+.\scripts\install-startup-task.ps1 -ExePath .\web-share.exe -Language zh-CN
 ```
 
-## 开机自启（计划任务）
-
-安装当前用户“登录后自动启动”任务：
-
-```powershell
-.\scripts\install-startup-task.ps1 -ExePath .\web-share.exe -Language en-US
-```
-
-卸载任务：
+卸载计划任务：
 
 ```powershell
 .\scripts\uninstall-startup-task.ps1 -TaskName WebShare.AutoStart
 ```
 
-边界说明：
+### 卸载
 
-- 默认任务名：`WebShare.AutoStart`
-- 安装时任务已存在会报错，可加 `-Force` 覆盖
-- 计划任务实际调用 `scripts/start-web-share.ps1`
-- 登录后会自动启动后台管理器和托盘，并显示启动完成通知
+卸载右键菜单：
 
-## 统一卸载
+```powershell
+.\web-share.exe uninstall-context-menu
+.\scripts\uninstall-context-menu.ps1 -ExePath .\web-share.exe
+```
 
-如果要一次性清理右键菜单、计划任务和运行中的进程：
+统一卸载：
 
 ```powershell
 .\scripts\uninstall-all.ps1 -ExePath .\web-share.exe
-```
-
-如需同时删除本地数据：
-
-```powershell
 .\scripts\uninstall-all.ps1 -ExePath .\web-share.exe -RemoveData
 ```
 
-统一卸载脚本会执行：
+统一卸载脚本会清理：
 
-- 卸载右键菜单
-- 卸载计划任务
-- 尝试关闭后台管理器和托盘进程
-- 删除本地生成的密码输入脚本
-- 可选删除 `%LOCALAPPDATA%\WebShare` 数据目录
-
-## 常见说明
-
-- 管理页仅允许本机访问
-- 分享页可被局域网内其他设备访问
-- 所有分享共用固定端口 `21910`
-- 浏览器选择文件夹上传时通常不能包含空目录
-- 如果右键密码分享没有出现新行为，通常需要先卸载再重新安装右键菜单
-- 文本预览按扩展名白名单启用，并只读取文件前 `64KB`
-- 首页/管理页的文本展示为摘要；首页一键复制会复制完整文本
-- 图片预览按扩展名白名单启用，源文件失效时缩略图会加载失败
+- 右键菜单
+- 计划任务
+- 管理器和托盘进程
+- 自动生成的密码输入脚本
+- 可选本地数据目录
