@@ -106,7 +106,7 @@ func TestSequentialChunkUploadCompletesFile(t *testing.T) {
 	startBody, err := json.Marshal(uploadStartRequest{
 		Path:        "",
 		Password:    "123456",
-		FileName:    "movie.bin",
+		FilePath:    "movie.bin",
 		FileSize:    10,
 		ChunkSize:   4,
 		TotalChunks: 3,
@@ -174,7 +174,7 @@ func TestChunkUploadRejectsUnexpectedIndex(t *testing.T) {
 
 	startBody, _ := json.Marshal(uploadStartRequest{
 		Password:    "123456",
-		FileName:    "wrong.bin",
+		FilePath:    "wrong.bin",
 		FileSize:    8,
 		ChunkSize:   4,
 		TotalChunks: 2,
@@ -198,6 +198,65 @@ func TestChunkUploadRejectsUnexpectedIndex(t *testing.T) {
 	}
 	if !strings.Contains(chunkRec.Body.String(), "unexpected chunk index") {
 		t.Fatalf("expected unexpected chunk index error, got %q", chunkRec.Body.String())
+	}
+}
+
+func TestSequentialChunkUploadCreatesNestedFolders(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr := &Manager{
+		cfg:       DefaultConfig(),
+		templates: mustParseTemplates(),
+		shares: map[string]*Share{
+			"share-1": {
+				ID:       "share-1",
+				Code:     "abcd",
+				Path:     tmpDir,
+				Name:     "tmp",
+				IsDir:    true,
+				Password: "123456",
+			},
+		},
+		uploads: make(map[string]*uploadSession),
+	}
+
+	startBody, err := json.Marshal(uploadStartRequest{
+		Path:        "photos",
+		Password:    "123456",
+		FilePath:    "trip/day1/pic.txt",
+		FileSize:    5,
+		ChunkSize:   5,
+		TotalChunks: 1,
+	})
+	if err != nil {
+		t.Fatalf("marshal start request: %v", err)
+	}
+
+	startReq := httptest.NewRequest(http.MethodPost, "/s/abcd/upload/start", bytes.NewReader(startBody))
+	startRec := httptest.NewRecorder()
+	mgr.handleShare(startRec, startReq)
+	if startRec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, startRec.Code, startRec.Body.String())
+	}
+
+	var startResp uploadStartResponse
+	if err := json.Unmarshal(startRec.Body.Bytes(), &startResp); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+
+	chunkReq := httptest.NewRequest(http.MethodPost, "/s/abcd/upload/chunk?upload_id="+startResp.UploadID+"&index=0", strings.NewReader("hello"))
+	chunkReq.ContentLength = 5
+	chunkRec := httptest.NewRecorder()
+	mgr.handleShare(chunkRec, chunkReq)
+	if chunkRec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, chunkRec.Code, chunkRec.Body.String())
+	}
+
+	content, err := os.ReadFile(filepath.Join(tmpDir, "photos", "trip", "day1", "pic.txt"))
+	if err != nil {
+		t.Fatalf("read nested upload: %v", err)
+	}
+	if string(content) != "hello" {
+		t.Fatalf("expected nested uploaded content %q, got %q", "hello", string(content))
 	}
 }
 

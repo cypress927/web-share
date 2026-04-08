@@ -152,7 +152,7 @@ type uploadSession struct {
 type uploadStartRequest struct {
 	Path        string `json:"path"`
 	Password    string `json:"password"`
-	FileName    string `json:"fileName"`
+	FilePath    string `json:"filePath"`
 	FileSize    int64  `json:"fileSize"`
 	ChunkSize   int64  `json:"chunkSize"`
 	TotalChunks int    `json:"totalChunks"`
@@ -659,6 +659,9 @@ func (m *Manager) handleUploadStart(w http.ResponseWriter, r *http.Request, shar
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if session.UploadedBytes == session.TotalSize {
+		m.touchShare(share.ID)
+	}
 
 	m.writeJSON(w, http.StatusOK, uploadStartResponse{
 		UploadID:      session.ID,
@@ -723,16 +726,16 @@ func (m *Manager) handleUploadChunk(w http.ResponseWriter, r *http.Request, shar
 }
 
 func (m *Manager) prepareUploadSession(share *Share, req uploadStartRequest) (*uploadSession, error) {
-	currentPath, currentDir, err := resolveShareSubpath(share.Path, strings.TrimSpace(req.Path), true)
+	currentPath, _, err := resolveShareSubpath(share.Path, strings.TrimSpace(req.Path), true)
 	if err != nil {
 		return nil, errors.New("目录路径无效")
 	}
 
-	name := filepath.Base(strings.TrimSpace(req.FileName))
-	if name == "." || name == "" {
-		return nil, errors.New("无效文件名")
+	relativePath, parentDir, target, name, err := resolveUploadTargetPath(share.Path, currentPath, req.FilePath)
+	if err != nil {
+		return nil, err
 	}
-	if req.FileSize <= 0 {
+	if req.FileSize < 0 {
 		return nil, errors.New("无效文件大小")
 	}
 	if req.ChunkSize <= 0 {
@@ -742,19 +745,25 @@ func (m *Manager) prepareUploadSession(share *Share, req uploadStartRequest) (*u
 		return nil, errors.New("无效分片数量")
 	}
 
-	expectedChunks := int((req.FileSize + req.ChunkSize - 1) / req.ChunkSize)
+	expectedChunks := 1
+	if req.FileSize > 0 {
+		expectedChunks = int((req.FileSize + req.ChunkSize - 1) / req.ChunkSize)
+	}
 	if expectedChunks != req.TotalChunks {
 		return nil, errors.New("分片数量与文件大小不匹配")
 	}
 
-	target := filepath.Join(currentDir, name)
+	if err := os.MkdirAll(parentDir, 0o755); err != nil {
+		return nil, fmt.Errorf("创建目标目录失败: %w", err)
+	}
+
 	if _, err := os.Stat(target); err == nil {
 		return nil, errors.New("目标文件已存在")
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("检查目标文件失败: %w", err)
 	}
 
-	key := uploadSessionKey(share.ID, currentPath, name)
+	key := uploadSessionKey(share.ID, relativePath)
 
 	m.mu.Lock()
 	if existing, ok := m.uploads[key]; ok {
@@ -770,7 +779,7 @@ func (m *Manager) prepareUploadSession(share *Share, req uploadStartRequest) (*u
 	session := &uploadSession{
 		ID:           newUploadID(),
 		ShareID:      share.ID,
-		RelativePath: currentPath,
+		RelativePath: relativePath,
 		FileName:     name,
 		TempPath:     target + ".webshare.part",
 		TargetPath:   target,
@@ -793,6 +802,17 @@ func (m *Manager) prepareUploadSession(share *Share, req uploadStartRequest) (*u
 	} else if !errors.Is(err, os.ErrNotExist) {
 		m.mu.Unlock()
 		return nil, fmt.Errorf("检查上传临时文件失败: %w", err)
+	}
+
+	if session.TotalSize == 0 && session.UploadedBytes == 0 {
+		file, err := os.OpenFile(session.TargetPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err != nil {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("创建空文件失败: %w", err)
+		}
+		_ = file.Close()
+		m.mu.Unlock()
+		return session, nil
 	}
 
 	m.uploads[key] = session
@@ -866,7 +886,7 @@ func (m *Manager) appendUploadChunk(session *uploadSession, index int, src io.Re
 	}
 
 	m.mu.Lock()
-	delete(m.uploads, uploadSessionKey(session.ShareID, session.RelativePath, session.FileName))
+	delete(m.uploads, uploadSessionKey(session.ShareID, session.RelativePath))
 	m.mu.Unlock()
 
 	return session.UploadedBytes, true, nil
@@ -878,8 +898,8 @@ func (m *Manager) writeJSON(w http.ResponseWriter, status int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func uploadSessionKey(shareID, relativePath, fileName string) string {
-	return shareID + "|" + relativePath + "|" + strings.ToLower(fileName)
+func uploadSessionKey(shareID, relativePath string) string {
+	return shareID + "|" + strings.ToLower(filepath.ToSlash(relativePath))
 }
 
 func (m *Manager) touchShare(id string) {
@@ -1139,6 +1159,37 @@ func resolveShareSubpath(root, requested string, allowDir bool) (string, string,
 		return normalized, target, nil
 	}
 	return normalized, target, nil
+}
+
+func resolveUploadTargetPath(root, currentPath, requested string) (string, string, string, string, error) {
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		return "", "", "", "", errors.New("无效文件名")
+	}
+
+	clean := filepath.Clean(filepath.FromSlash(requested))
+	if clean == "." || filepath.IsAbs(clean) || filepath.VolumeName(clean) != "" {
+		return "", "", "", "", errors.New("无效文件名")
+	}
+
+	name := filepath.Base(clean)
+	if name == "." || name == "" {
+		return "", "", "", "", errors.New("无效文件名")
+	}
+
+	parentRequest := currentPath
+	if dir := filepath.Dir(clean); dir != "." && dir != "" {
+		parentRequest = joinRelativePath(currentPath, filepath.ToSlash(dir))
+	}
+
+	parentRelative, parentDir, err := resolveShareSubpath(root, parentRequest, true)
+	if err != nil {
+		return "", "", "", "", errors.New("目录路径无效")
+	}
+
+	relativePath := joinRelativePath(parentRelative, name)
+	target := filepath.Join(parentDir, name)
+	return relativePath, parentDir, target, name, nil
 }
 
 func isLocalRequest(remoteAddr string) bool {

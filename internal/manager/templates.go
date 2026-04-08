@@ -728,6 +728,19 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
     .upload-ok {
       color: var(--ok);
     }
+    .upload-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .ghost-button {
+      border: 1px solid rgba(198,107,61,0.35);
+      background: rgba(198,107,61,0.08);
+      color: #8e4a26;
+    }
+    .ghost-button:hover {
+      background: rgba(198,107,61,0.18);
+    }
     @media (max-width: 760px) {
       body { padding: 12px; }
       .content { grid-template-columns: 1fr; padding: 16px; }
@@ -838,9 +851,13 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
           <div class="section-divider"></div>
           <form id="upload-form">
             <input type="hidden" name="path" value="{{.CurrentPath}}">
-            <input type="file" name="file" required>
+            <input type="file" name="file">
+            <input type="file" name="folder" id="folder-input" webkitdirectory directory multiple hidden>
             <input type="password" name="password" placeholder="上传密码" required>
-            <button type="submit" id="upload-button">上传文件</button>
+            <div class="upload-actions">
+              <button type="submit" id="upload-button">上传文件</button>
+              <button type="button" class="ghost-button" id="upload-folder-button">选择文件夹</button>
+            </div>
             <div class="upload-status" id="upload-status" hidden>
               <div class="progress-shell"><div class="progress-bar" id="upload-progress"></div></div>
               <div class="progress-meta">
@@ -867,9 +884,11 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
     (() => {
       const form = document.getElementById("upload-form");
       const fileInput = form?.querySelector('input[name="file"]');
+      const folderInput = document.getElementById("folder-input");
       const passwordInput = form?.querySelector('input[name="password"]');
       const pathInput = form?.querySelector('input[name="path"]');
       const button = document.getElementById("upload-button");
+      const folderButton = document.getElementById("upload-folder-button");
       const statusBox = document.getElementById("upload-status");
       const progressBar = document.getElementById("upload-progress");
       const statusText = document.getElementById("upload-status-text");
@@ -878,7 +897,7 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       const chunkSize = {{.ChunkSize}};
       const shareCode = "{{.ShareCode}}";
 
-      if (!form || !fileInput || !passwordInput || !pathInput || !button || !statusBox || !progressBar || !statusText || !progressText || !detailText) {
+      if (!form || !fileInput || !folderInput || !passwordInput || !pathInput || !button || !folderButton || !statusBox || !progressBar || !statusText || !progressText || !detailText) {
         return;
       }
 
@@ -894,24 +913,112 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
         return size.toFixed(size >= 100 ? 0 : 1) + " " + units[unit];
       };
 
-      const updateProgress = (uploadedBytes, totalBytes, nextIndex, totalChunks, stateClass, message) => {
+      const updateProgress = (uploadedBytes, totalBytes, nextIndex, totalChunks, stateClass, message, detail) => {
         const percent = totalBytes === 0 ? 0 : Math.min(100, (uploadedBytes / totalBytes) * 100);
         statusBox.hidden = false;
         progressBar.style.width = percent.toFixed(2) + "%";
         progressText.textContent = percent.toFixed(percent >= 100 ? 0 : 1) + "%";
         statusText.textContent = message;
         statusText.className = "upload-status-text" + (stateClass ? " " + stateClass : "");
-        detailText.textContent = "已上传 " + formatBytes(uploadedBytes) + " / " + formatBytes(totalBytes) + "，分片 " + Math.min(nextIndex, totalChunks) + " / " + totalChunks;
+        detailText.textContent = detail || ("已上传 " + formatBytes(uploadedBytes) + " / " + formatBytes(totalBytes) + "，分片 " + Math.min(nextIndex, totalChunks) + " / " + totalChunks);
       };
 
-      form.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const file = fileInput.files?.[0];
-        const password = passwordInput.value;
-        const currentPath = pathInput.value;
+      const setBusy = (busy) => {
+        button.disabled = busy;
+        folderButton.disabled = busy;
+        fileInput.disabled = busy;
+        folderInput.disabled = busy;
+        passwordInput.disabled = busy;
+      };
 
-        if (!file) {
-          updateProgress(0, 0, 0, 0, "upload-error", "请选择要上传的文件");
+      const uploadOneFile = async (entry, overall) => {
+        const file = entry.file;
+        const relativePath = entry.relativePath;
+        const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
+        let uploadedBytes = 0;
+        let nextIndex = 0;
+
+        const startResp = await fetch("/s/" + shareCode + "/upload/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: pathInput.value,
+            password: passwordInput.value,
+            filePath: relativePath,
+            fileSize: file.size,
+            chunkSize,
+            totalChunks
+          })
+        });
+        if (!startResp.ok) {
+          throw new Error(await startResp.text() || "无法开始上传");
+        }
+
+        const startData = await startResp.json();
+        uploadedBytes = startData.uploadedBytes || 0;
+        nextIndex = startData.nextIndex || 0;
+        overall.baseBytes += uploadedBytes;
+
+        updateProgress(
+          overall.baseBytes,
+          overall.totalBytes,
+          nextIndex,
+          totalChunks,
+          "",
+          "正在上传 " + relativePath,
+          "当前文件 " + relativePath + "，已完成 " + formatBytes(overall.baseBytes) + " / " + formatBytes(overall.totalBytes)
+        );
+
+        if (startData.done) {
+          return;
+        }
+
+        for (let index = nextIndex; index < totalChunks; index += 1) {
+          const start = index * chunkSize;
+          const end = Math.min(file.size, start + chunkSize);
+          const chunk = file.slice(start, end);
+
+          updateProgress(
+            overall.baseBytes,
+            overall.totalBytes,
+            index,
+            totalChunks,
+            "",
+            "正在上传 " + relativePath,
+            "当前文件 " + relativePath + "，分片 " + (index + 1) + " / " + totalChunks
+          );
+
+          const chunkResp = await fetch("/s/" + shareCode + "/upload/chunk?upload_id=" + encodeURIComponent(startData.uploadId) + "&index=" + index, {
+            method: "POST",
+            headers: { "Content-Type": "application/octet-stream" },
+            body: chunk
+          });
+          if (!chunkResp.ok) {
+            throw new Error(await chunkResp.text() || "上传分片失败");
+          }
+
+          const chunkData = await chunkResp.json();
+          const serverUploadedBytes = chunkData.uploadedBytes || end;
+          const delta = Math.max(0, serverUploadedBytes - uploadedBytes);
+          uploadedBytes = serverUploadedBytes;
+          overall.baseBytes += delta;
+
+          updateProgress(
+            overall.baseBytes,
+            overall.totalBytes,
+            chunkData.nextIndex || (index + 1),
+            totalChunks,
+            "",
+            "正在等待服务端写入...",
+            "当前文件 " + relativePath + "，已完成 " + formatBytes(overall.baseBytes) + " / " + formatBytes(overall.totalBytes)
+          );
+        }
+      };
+
+      const runUpload = async (entries) => {
+        const password = passwordInput.value;
+        if (!entries.length) {
+          updateProgress(0, 0, 0, 0, "upload-error", "请选择要上传的文件或文件夹");
           return;
         }
         if (!password) {
@@ -919,61 +1026,30 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
           return;
         }
 
-        const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
-        let uploadedBytes = 0;
-        let nextIndex = 0;
-        button.disabled = true;
+        const overall = {
+          totalBytes: entries.reduce((sum, entry) => sum + entry.file.size, 0),
+          baseBytes: 0
+        };
+        setBusy(true);
 
         try {
-          updateProgress(0, file.size, 0, totalChunks, "", "正在准备上传...");
+          updateProgress(0, overall.totalBytes, 0, 0, "", "正在准备上传...", "共 " + entries.length + " 个文件");
 
-          const startResp = await fetch("/s/" + shareCode + "/upload/start", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              path: currentPath,
-              password,
-              fileName: file.name,
-              fileSize: file.size,
-              chunkSize,
-              totalChunks
-            })
-          });
-          if (!startResp.ok) {
-            throw new Error(await startResp.text() || "无法开始上传");
+          for (let fileIndex = 0; fileIndex < entries.length; fileIndex += 1) {
+            const entry = entries[fileIndex];
+            updateProgress(
+              overall.baseBytes,
+              overall.totalBytes,
+              0,
+              0,
+              "",
+              "正在处理 " + entry.relativePath,
+              "第 " + (fileIndex + 1) + " / " + entries.length + " 个文件"
+            );
+            await uploadOneFile(entry, overall);
           }
 
-          const startData = await startResp.json();
-          uploadedBytes = startData.uploadedBytes || 0;
-          nextIndex = startData.nextIndex || 0;
-
-          updateProgress(uploadedBytes, file.size, nextIndex, totalChunks, "", "正在上传分片...");
-
-          if (!startData.done) {
-            for (let index = nextIndex; index < totalChunks; index += 1) {
-              const start = index * chunkSize;
-              const end = Math.min(file.size, start + chunkSize);
-              const chunk = file.slice(start, end);
-
-              updateProgress(uploadedBytes, file.size, index, totalChunks, "", "正在上传分片 " + (index + 1) + " / " + totalChunks);
-
-              const chunkResp = await fetch("/s/" + shareCode + "/upload/chunk?upload_id=" + encodeURIComponent(startData.uploadId) + "&index=" + index, {
-                method: "POST",
-                headers: { "Content-Type": "application/octet-stream" },
-                body: chunk
-              });
-              if (!chunkResp.ok) {
-                throw new Error(await chunkResp.text() || "上传分片失败");
-              }
-
-              const chunkData = await chunkResp.json();
-              uploadedBytes = chunkData.uploadedBytes || end;
-              nextIndex = chunkData.nextIndex || (index + 1);
-              updateProgress(uploadedBytes, file.size, nextIndex, totalChunks, "", "正在等待服务端写入...");
-            }
-          }
-
-          updateProgress(file.size, file.size, totalChunks, totalChunks, "upload-ok", "上传完成");
+          updateProgress(overall.totalBytes, overall.totalBytes, 0, 0, "upload-ok", "上传完成", "共上传 " + entries.length + " 个文件");
           setTimeout(() => {
             const nextURL = new URL(window.location.href);
             nextURL.searchParams.set("success", "上传成功");
@@ -981,12 +1057,29 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
             window.location.href = nextURL.toString();
           }, 500);
         } catch (error) {
-          updateProgress(uploadedBytes, file.size, nextIndex, totalChunks, "upload-error", error instanceof Error ? error.message : "上传失败");
-          button.disabled = false;
+          updateProgress(overall.baseBytes, overall.totalBytes, 0, 0, "upload-error", error instanceof Error ? error.message : "上传失败");
+          setBusy(false);
           return;
         }
 
-        button.disabled = false;
+        setBusy(false);
+      };
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const file = fileInput.files?.[0];
+        const entries = file ? [{ file, relativePath: file.name }] : [];
+        await runUpload(entries);
+      });
+
+      folderButton.addEventListener("click", () => folderInput.click());
+      folderInput.addEventListener("change", async () => {
+        const entries = Array.from(folderInput.files || []).map((file) => ({
+          file,
+          relativePath: file.webkitRelativePath || file.name
+        }));
+        await runUpload(entries);
+        folderInput.value = "";
       });
     })();
   </script>
