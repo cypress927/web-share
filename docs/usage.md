@@ -196,11 +196,37 @@ http://<局域网IP>:21910/s/<share-code>
 .\web-share.exe run-manager
 ```
 
+使用脚本同时启动管理器和托盘：
+
+```powershell
+.\scripts\start-web-share.ps1 -ExePath .\web-share.exe
+```
+
 ## 卸载右键菜单
 
 ```powershell
 .\web-share.exe uninstall-context-menu
 ```
+
+## 开机自启（计划任务）
+
+安装当前用户“登录后自动启动”任务：
+
+```powershell
+.\scripts\install-startup-task.ps1 -ExePath .\web-share.exe
+```
+
+卸载任务：
+
+```powershell
+.\scripts\uninstall-startup-task.ps1
+```
+
+边界说明：
+
+- 默认任务名：`WebShare.AutoStart`
+- 安装时任务已存在会报错，可加 `-Force` 覆盖
+- 卸载时若任务不存在，脚本会提示并正常退出
 
 ## 常见说明
 

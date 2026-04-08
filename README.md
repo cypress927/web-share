@@ -189,6 +189,32 @@ go build -o .\web-share.exe .\cmd\web-share
 .\web-share.exe uninstall-context-menu
 ```
 
+## 启动脚本与开机自启
+
+手动后台启动（管理器 + 托盘）：
+
+```powershell
+.\scripts\start-web-share.ps1 -ExePath .\web-share.exe
+```
+
+安装“登录后自动启动”计划任务：
+
+```powershell
+.\scripts\install-startup-task.ps1 -ExePath .\web-share.exe
+```
+
+卸载“登录后自动启动”计划任务：
+
+```powershell
+.\scripts\uninstall-startup-task.ps1
+```
+
+计划任务边界：
+
+- 默认任务名为 `WebShare.AutoStart`
+- 若任务已存在，安装脚本会报错；可加 `-Force` 覆盖
+- 卸载脚本在任务不存在时不会报错，会直接提示“未找到计划任务”
+
 ## 托盘
 
 当前托盘菜单提供：
