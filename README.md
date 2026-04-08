@@ -58,12 +58,45 @@ go build -o .\web-share.exe .\cmd\web-share
 
 Note:
 
-- Setup scripts rely on `web-share.exe` supporting `install-context-menu -lang`
+- `web-share.exe` now includes built-in install/start/repair/uninstall commands
+- PowerShell scripts are still available as wrapper entry points
 - Rebuild the executable first if you are using an older binary
 
 ### Setup
 
-Recommended: run the initialization script.
+Recommended: use the built-in single-file install command.
+
+```powershell
+.\web-share.exe install -lang en-US
+```
+
+Example with Chinese:
+
+```powershell
+.\web-share.exe install -lang zh-CN
+```
+
+Built-in install defaults:
+
+- `-context-menu=true`
+- `-startup-task=true`
+- `-start-now=true`
+- `-notify-start=true`
+
+To disable startup-task installation or immediate start explicitly:
+
+```powershell
+.\web-share.exe install -lang en-US -startup-task=false -start-now=false
+```
+
+What the built-in install command does:
+
+- Persists the default system language directly to local settings
+- Installs the Windows context menu
+- Optionally installs a startup scheduled task
+- Optionally starts manager and tray immediately
+
+Legacy wrapper script:
 
 ```powershell
 .\scripts\init-web-share.ps1 -ExePath .\web-share.exe
@@ -80,13 +113,7 @@ Default behavior:
 - `-StartNow` is enabled by default
 - `-NotifyStart` is enabled by default
 
-To disable startup-task installation or immediate start explicitly:
-
-```powershell
-.\scripts\init-web-share.ps1 -ExePath .\web-share.exe -InstallStartupTask:$false -StartNow:$false
-```
-
-Optional parameters:
+Script optional parameters:
 
 - `-Language en-US|zh-CN`
 - `-InstallStartupTask`
@@ -94,15 +121,6 @@ Optional parameters:
 - `-ForceTask`
 - `-StartNow`
 - `-NotifyStart`
-
-What the init script does:
-
-- Installs the context menu
-- Sets the default system language
-- Optionally installs a startup scheduled task
-- Optionally starts manager and tray immediately
-- If manager is not running, it may start manager temporarily in order to persist the default language
-- If `-StartNow:$false` is used and manager was only started temporarily by the script, it will be shut down again at the end
 
 ### Context Menu
 
@@ -139,7 +157,20 @@ Uninstall:
 
 ### Start and Auto Start
 
-Manual start:
+Preferred manual start:
+
+```powershell
+.\web-share.exe start -lang en-US
+```
+
+Built-in behavior:
+
+- Starts manager first when needed
+- Starts tray when needed
+- Shows a startup success notification
+- Does not relaunch already running components
+
+Legacy wrapper script:
 
 ```powershell
 .\scripts\start-web-share.ps1 -ExePath .\web-share.exe -Language en-US
@@ -151,7 +182,19 @@ Behavior:
 - Shows a startup success notification
 - Does not relaunch manager if it is already running
 
-Install startup task:
+Install startup task with the built-in installer:
+
+```powershell
+.\web-share.exe install -lang en-US -startup-task=true -start-now=false
+```
+
+Remove startup task with built-in uninstall:
+
+```powershell
+.\web-share.exe uninstall -remove-startup-task=true -remove-context-menu=false
+```
+
+Legacy task scripts:
 
 ```powershell
 .\scripts\install-startup-task.ps1 -ExePath .\web-share.exe -Language en-US
@@ -166,11 +209,11 @@ Remove startup task:
 ### Unified Uninstall
 
 ```powershell
-.\scripts\uninstall-all.ps1 -ExePath .\web-share.exe
-.\scripts\uninstall-all.ps1 -ExePath .\web-share.exe -RemoveData
+.\web-share.exe uninstall
+.\web-share.exe uninstall -remove-data=true
 ```
 
-The unified uninstall script removes:
+The built-in uninstall command removes:
 
 - Context menu entries
 - Scheduled task
@@ -178,9 +221,20 @@ The unified uninstall script removes:
 - Generated prompt script cache
 - Optional local data under `%LOCALAPPDATA%\WebShare`
 
+Legacy wrapper script:
+
+```powershell
+.\scripts\uninstall-all.ps1 -ExePath .\web-share.exe
+.\scripts\uninstall-all.ps1 -ExePath .\web-share.exe -RemoveData
+```
+
 ### CLI
 
 ```powershell
+.\web-share.exe install -lang en-US
+.\web-share.exe start
+.\web-share.exe repair -lang zh-CN
+.\web-share.exe uninstall -remove-data=true
 .\web-share.exe enqueue C:\path\to\file.txt
 .\web-share.exe enqueue C:\path\to\folder
 .\web-share.exe enqueue -password 123456 C:\path\to\folder
@@ -256,12 +310,45 @@ go build -o .\web-share.exe .\cmd\web-share
 
 说明：
 
-- 安装脚本依赖当前 `web-share.exe` 支持 `install-context-menu -lang`
+- `web-share.exe` 现在内置了 `install/start/repair/uninstall` 命令
+- PowerShell 脚本仍然保留，用作兼容包装入口
 - 如果本地是旧版可执行文件，请先重新编译
 
 ### 初始化安装
 
-推荐直接运行初始化脚本：
+推荐直接使用内置的单文件安装命令：
+
+```powershell
+.\web-share.exe install -lang zh-CN
+```
+
+英文安装示例：
+
+```powershell
+.\web-share.exe install -lang en-US
+```
+
+内置安装命令默认行为：
+
+- `-context-menu=true`
+- `-startup-task=true`
+- `-start-now=true`
+- `-notify-start=true`
+
+如果你希望关闭“安装开机自启”或“立即启动”，可以显式传：
+
+```powershell
+.\web-share.exe install -lang zh-CN -startup-task=false -start-now=false
+```
+
+内置安装命令会执行：
+
+- 直接把默认语言写入本地设置
+- 安装 Windows 右键菜单
+- 可选安装开机自启计划任务
+- 可选立即启动后台管理器和托盘
+
+兼容脚本入口：
 
 ```powershell
 .\scripts\init-web-share.ps1 -ExePath .\web-share.exe
@@ -278,13 +365,7 @@ go build -o .\web-share.exe .\cmd\web-share
 - `-StartNow` 默认开启
 - `-NotifyStart` 默认开启
 
-如果你希望关闭“安装开机自启”或“立即启动”，需要显式传：
-
-```powershell
-.\scripts\init-web-share.ps1 -ExePath .\web-share.exe -InstallStartupTask:$false -StartNow:$false
-```
-
-可选参数：
+脚本可选参数：
 
 - `-Language en-US|zh-CN`
 - `-InstallStartupTask`
@@ -292,15 +373,6 @@ go build -o .\web-share.exe .\cmd\web-share
 - `-ForceTask`
 - `-StartNow`
 - `-NotifyStart`
-
-初始化脚本会执行：
-
-- 安装右键菜单
-- 设置系统默认语言
-- 可选安装开机自启计划任务
-- 可选立即启动后台管理器和托盘
-- 如果 manager 当前未运行，脚本可能会临时拉起 manager 用于写入默认语言
-- 如果传入 `-StartNow:$false`，且 manager 只是被脚本临时拉起，脚本结束时会再次关闭它
 
 ### 右键菜单
 
@@ -337,7 +409,20 @@ go build -o .\web-share.exe .\cmd\web-share
 
 ### 启动与开机自启
 
-手动启动：
+推荐手动启动：
+
+```powershell
+.\web-share.exe start -lang zh-CN
+```
+
+内置行为：
+
+- 需要时先启动后台管理器
+- 需要时启动托盘
+- 显示启动成功通知
+- 已运行的组件不会被重复拉起
+
+兼容脚本入口：
 
 ```powershell
 .\scripts\start-web-share.ps1 -ExePath .\web-share.exe -Language zh-CN
@@ -349,7 +434,19 @@ go build -o .\web-share.exe .\cmd\web-share
 - 启动完成后弹出成功通知
 - 如果管理器本来已运行，不会重复拉起
 
-安装计划任务：
+通过内置安装命令安装计划任务：
+
+```powershell
+.\web-share.exe install -lang zh-CN -startup-task=true -start-now=false
+```
+
+通过内置卸载命令移除计划任务：
+
+```powershell
+.\web-share.exe uninstall -remove-startup-task=true -remove-context-menu=false
+```
+
+兼容计划任务脚本：
 
 ```powershell
 .\scripts\install-startup-task.ps1 -ExePath .\web-share.exe -Language zh-CN
@@ -364,11 +461,11 @@ go build -o .\web-share.exe .\cmd\web-share
 ### 统一卸载
 
 ```powershell
-.\scripts\uninstall-all.ps1 -ExePath .\web-share.exe
-.\scripts\uninstall-all.ps1 -ExePath .\web-share.exe -RemoveData
+.\web-share.exe uninstall
+.\web-share.exe uninstall -remove-data=true
 ```
 
-统一卸载脚本会清理：
+内置卸载命令会清理：
 
 - 右键菜单
 - 计划任务
@@ -376,9 +473,20 @@ go build -o .\web-share.exe .\cmd\web-share
 - 自动生成的密码输入脚本缓存
 - 可选删除 `%LOCALAPPDATA%\WebShare` 本地数据
 
+兼容脚本入口：
+
+```powershell
+.\scripts\uninstall-all.ps1 -ExePath .\web-share.exe
+.\scripts\uninstall-all.ps1 -ExePath .\web-share.exe -RemoveData
+```
+
 ### 命令行
 
 ```powershell
+.\web-share.exe install -lang zh-CN
+.\web-share.exe start
+.\web-share.exe repair -lang en-US
+.\web-share.exe uninstall -remove-data=true
 .\web-share.exe enqueue C:\path\to\file.txt
 .\web-share.exe enqueue C:\path\to\folder
 .\web-share.exe enqueue -password 123456 C:\path\to\folder

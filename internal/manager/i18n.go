@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -309,4 +310,21 @@ func SystemDefaultLanguage() string {
 		return langEN
 	}
 	return lang
+}
+
+func SetSystemDefaultLanguage(lang string) error {
+	lang = normalizeLanguage(lang)
+	if !isSupportedLanguage(lang) {
+		return errors.New("unsupported language")
+	}
+
+	dbPath, err := resolveDBPath("")
+	if err != nil {
+		return err
+	}
+	store, err := openSettingsStore(dbPath)
+	if err != nil {
+		return err
+	}
+	return store.SetDefaultLanguage(lang)
 }

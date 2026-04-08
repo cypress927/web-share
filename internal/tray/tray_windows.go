@@ -85,6 +85,22 @@ func Restart() error {
 	return EnsureStarted()
 }
 
+func Stop() error {
+	_ = signalQuitEvent()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		locked, err := shell.MutexExists(trayMutexName)
+		if err != nil {
+			return err
+		}
+		if !locked {
+			return nil
+		}
+		time.Sleep(120 * time.Millisecond)
+	}
+	return nil
+}
+
 func onReady() {
 	lang := manager.SystemDefaultLanguage()
 	systray.SetIcon(assets.ShareICO)

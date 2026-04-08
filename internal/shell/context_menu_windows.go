@@ -88,7 +88,7 @@ func UninstallContextMenu() error {
 
 	for _, args := range commands {
 		if err := exec.Command("reg", args...).Run(); err != nil {
-			return fmt.Errorf("run reg %v: %w", args, err)
+			continue
 		}
 	}
 
