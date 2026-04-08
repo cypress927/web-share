@@ -46,6 +46,7 @@ const (
 type Config struct {
 	BindHost string
 	Port     int
+	DBPath   string
 }
 
 type Manager struct {
@@ -53,9 +54,11 @@ type Manager struct {
 	server    *http.Server
 	templates *template.Template
 
-	mu      sync.RWMutex
-	shares  map[string]*Share
-	uploads map[string]*uploadSession
+	mu          sync.RWMutex
+	store       ShareStore
+	shares      map[string]*Share
+	legacyStore ShareStore
+	uploads     map[string]*uploadSession
 }
 
 type Share struct {
@@ -214,10 +217,15 @@ func DefaultConfig() Config {
 }
 
 func Run(cfg Config) error {
+	store, err := openShareStore(cfg.DBPath)
+	if err != nil {
+		return err
+	}
+
 	mgr := &Manager{
 		cfg:       cfg,
 		templates: template.Must(template.New("pages").Parse(homeHTML + manageHTML + shareHTML)),
-		shares:    make(map[string]*Share),
+		store:     store,
 		uploads:   make(map[string]*uploadSession),
 	}
 
@@ -239,6 +247,21 @@ func Run(cfg Config) error {
 	return mgr.server.ListenAndServe()
 }
 
+func openShareStore(path string) (ShareStore, error) {
+	dbPath := strings.TrimSpace(path)
+	if dbPath == "" {
+		cacheDir, err := os.UserCacheDir()
+		if err != nil {
+			return nil, err
+		}
+		dbPath = filepath.Join(cacheDir, "WebShare", "web-share.db")
+	}
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		return nil, err
+	}
+	return newSQLiteShareStore(dbPath)
+}
+
 func LocalAPI(path string) string {
 	return fmt.Sprintf("http://127.0.0.1:%d%s", defaultPort, path)
 }
@@ -255,6 +278,17 @@ func IsReachable() bool {
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
+}
+
+func (m *Manager) shareStore() ShareStore {
+	if m.store != nil {
+		return m.store
+	}
+	if m.legacyStore != nil {
+		return m.legacyStore
+	}
+	m.legacyStore = newMemoryShareStoreFromMap(m.shares)
+	return m.legacyStore
 }
 
 func (m *Manager) handleHome(w http.ResponseWriter, r *http.Request) {
@@ -468,6 +502,7 @@ func (m *Manager) createShare(req CreateShareRequest) (*Share, error) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	store := m.shareStore()
 
 	switch kind {
 	case shareKindClipboardText:
@@ -493,7 +528,9 @@ func (m *Manager) createShare(req CreateShareRequest) (*Share, error) {
 			CreatedAt:   time.Now(),
 			LastUpdated: time.Now(),
 		}
-		m.shares[share.ID] = share
+		if err := store.Create(share); err != nil {
+			return nil, err
+		}
 		return copyShare(share), nil
 
 	case shareKindClipboardImage:
@@ -531,7 +568,9 @@ func (m *Manager) createShare(req CreateShareRequest) (*Share, error) {
 			CreatedAt:   time.Now(),
 			LastUpdated: time.Now(),
 		}
-		m.shares[share.ID] = share
+		if err := store.Create(share); err != nil {
+			return nil, err
+		}
 		return copyShare(share), nil
 	}
 
@@ -570,16 +609,19 @@ func (m *Manager) createShare(req CreateShareRequest) (*Share, error) {
 		LastUpdated: time.Now(),
 	}
 
-	m.shares[share.ID] = share
+	if err := store.Create(share); err != nil {
+		return nil, err
+	}
 	return copyShare(share), nil
 }
 
 func (m *Manager) updateShare(id, name string, visible bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	store := m.shareStore()
 
-	share, ok := m.shares[id]
-	if !ok {
+	share, err := store.GetByID(id)
+	if err != nil {
 		return errors.New("share not found")
 	}
 
@@ -591,38 +633,35 @@ func (m *Manager) updateShare(id, name string, visible bool) error {
 	share.Name = m.allocateUniqueName(name, id)
 	share.Visible = visible
 	share.LastUpdated = time.Now()
-	return nil
+	return store.Update(share)
 }
 
 func (m *Manager) deleteShare(id string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.shares[id]; !ok {
+	ok, err := m.shareStore().DeleteByID(id)
+	if err != nil {
 		return false
 	}
-	delete(m.shares, id)
-	return true
+	return ok
 }
 
 func (m *Manager) getShareByCode(code string) *Share {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	for _, share := range m.shares {
-		if strings.EqualFold(share.Code, code) {
-			return copyShare(share)
-		}
+	share, err := m.shareStore().GetByCode(code)
+	if err != nil {
+		return nil
 	}
-
-	return nil
+	return share
 }
 
 func (m *Manager) listVisibleShares() []publicShareCard {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	allShares, err := m.shareStore().List()
+	if err != nil {
+		return nil
+	}
 
-	shares := make([]publicShareCard, 0, len(m.shares))
-	for _, share := range m.shares {
+	shares := make([]publicShareCard, 0, len(allShares))
+	for _, share := range allShares {
 		if !share.Visible {
 			continue
 		}
@@ -690,12 +729,14 @@ func truncateText(input string, maxRunes int) string {
 }
 
 func (m *Manager) listManageCards() []manageShareCard {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	allShares, err := m.shareStore().List()
+	if err != nil {
+		return nil
+	}
 
-	cards := make([]manageShareCard, 0, len(m.shares))
+	cards := make([]manageShareCard, 0, len(allShares))
 	localIPs := listLocalIPv4s()
-	for _, share := range m.shares {
+	for _, share := range allShares {
 		localURL := fmt.Sprintf("http://127.0.0.1:%d/s/%s", m.cfg.Port, share.Code)
 		card := manageShareCard{
 			ID:             share.ID,
@@ -1422,9 +1463,12 @@ func uploadSessionKey(shareID, relativePath string) string {
 func (m *Manager) touchShare(id string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if share, ok := m.shares[id]; ok {
-		share.LastUpdated = time.Now()
+	share, err := m.shareStore().GetByID(id)
+	if err != nil {
+		return
 	}
+	share.LastUpdated = time.Now()
+	_ = m.shareStore().Update(share)
 }
 
 func (m *Manager) allocateUniqueName(baseName, ignoreID string) string {
@@ -1443,7 +1487,12 @@ func (m *Manager) allocateUniqueName(baseName, ignoreID string) string {
 }
 
 func (m *Manager) nameExists(name, ignoreID string) bool {
-	for id, share := range m.shares {
+	shares, err := m.shareStore().List()
+	if err != nil {
+		return false
+	}
+	for _, share := range shares {
+		id := share.ID
 		if id == ignoreID {
 			continue
 		}
@@ -1464,7 +1513,11 @@ func (m *Manager) allocateUniqueCode() string {
 }
 
 func (m *Manager) codeExists(code string) bool {
-	for _, share := range m.shares {
+	shares, err := m.shareStore().List()
+	if err != nil {
+		return false
+	}
+	for _, share := range shares {
 		if strings.EqualFold(share.Code, code) {
 			return true
 		}
