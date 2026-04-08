@@ -361,7 +361,7 @@ func (m *Manager) handleShare(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(parts) == 1 && r.Method == http.MethodGet:
 		m.renderSharePage(w, r, share)
-	case len(parts) == 2 && parts[1] == "raw" && r.Method == http.MethodGet:
+	case len(parts) == 2 && parts[1] == "raw" && (r.Method == http.MethodGet || r.Method == http.MethodHead):
 		m.serveShareRaw(w, r, share)
 	case len(parts) == 2 && parts[1] == "upload" && r.Method == http.MethodPost:
 		m.handleShareUpload(w, r, share)
@@ -750,14 +750,21 @@ func serveFileDownload(w http.ResponseWriter, r *http.Request, path, downloadNam
 	}
 	defer file.Close()
 
+	info, err := file.Stat()
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
 	contentType := mime.TypeByExtension(filepath.Ext(downloadName))
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	} else {
 		w.Header().Set("Content-Type", "application/octet-stream")
 	}
+	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, downloadName))
-	http.ServeContent(w, r, downloadName, time.Time{}, file)
+	http.ServeContent(w, r, downloadName, info.ModTime(), file)
 }
 
 func writeUploadedFile(target string, src io.Reader) error {

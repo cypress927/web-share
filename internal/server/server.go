@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 )
 
 type Config struct {
@@ -106,6 +105,11 @@ func (s *shareServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *shareServer) handleRaw(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	if s.info.IsDir() {
 		name := filepath.Base(filepath.Clean(r.URL.Query().Get("name")))
 		if name == "." || name == "" {
@@ -243,15 +247,21 @@ func serveFileDownload(w http.ResponseWriter, r *http.Request, path, downloadNam
 	}
 	defer file.Close()
 
+	info, err := file.Stat()
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
 	contentType := mime.TypeByExtension(filepath.Ext(downloadName))
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	} else {
 		w.Header().Set("Content-Type", "application/octet-stream")
 	}
+	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, downloadName))
-
-	http.ServeContent(w, r, downloadName, time.Time{}, file)
+	http.ServeContent(w, r, downloadName, info.ModTime(), file)
 }
 
 func writeUploadedFile(target string, src io.Reader) error {
