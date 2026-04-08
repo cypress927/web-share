@@ -237,12 +237,17 @@ const homeHTML = `{{define "home"}}<!DOCTYPE html>
     }
   </style>
   <script>
-    async function copyShareText(value) {
-      if (!value) return;
+    async function copyShareText(url) {
+      if (!url) return;
       try {
+        const resp = await fetch(url, { cache: "no-store" });
+        if (!resp.ok) {
+          throw new Error("copy fetch failed");
+        }
+        const value = await resp.text();
         await navigator.clipboard.writeText(value);
       } catch (_) {
-        window.prompt("复制失败，请手动复制：", value);
+        alert("复制失败，请稍后重试。");
       }
     }
   </script>
@@ -277,7 +282,7 @@ const homeHTML = `{{define "home"}}<!DOCTYPE html>
               {{if .ShowThumbnail}}<img class="thumb" src="{{.ContentURL}}" alt="{{.Name}} 缩略图">{{end}}
               {{if not .Unavailable}}
               <div class="share-actions">
-                {{if .ShowCopy}}<button class="action-btn" type="button" onclick='copyShareText({{printf "%q" .CopyText}})'>一键复制</button>{{end}}
+                {{if .ShowCopy}}<button class="action-btn" type="button" onclick='copyShareText({{printf "%q" .CopyURL}})'>一键复制</button>{{end}}
                 {{if .ShowDownload}}<a class="action-btn primary" href="{{.DownloadURL}}">一键下载</a>{{end}}
               </div>
               {{end}}

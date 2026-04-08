@@ -660,6 +660,9 @@ func TestListVisibleSharesIncludesClipboardTextPreview(t *testing.T) {
 	if !card.ShowDownload {
 		t.Fatal("expected clipboard text card to show download button")
 	}
+	if card.CopyURL != "/s/abcd/text" {
+		t.Fatalf("unexpected copy url: %q", card.CopyURL)
+	}
 	if card.DownloadURL != "/s/abcd/raw" {
 		t.Fatalf("unexpected download url: %q", card.DownloadURL)
 	}
@@ -738,8 +741,75 @@ func TestListVisibleSharesIncludesTextFilePreview(t *testing.T) {
 	if !card.ShowCopy {
 		t.Fatal("expected text file card to show copy button")
 	}
+	if card.CopyURL != "/s/abcd/text" {
+		t.Fatalf("unexpected copy url: %q", card.CopyURL)
+	}
 	if !strings.Contains(card.PreviewText, "第一行") {
 		t.Fatalf("unexpected text preview: %q", card.PreviewText)
+	}
+}
+
+func TestServeShareTextReturnsFullClipboardText(t *testing.T) {
+	full := strings.Repeat("ab", 300)
+	mgr := &Manager{
+		cfg:       DefaultConfig(),
+		templates: mustParseTemplates(),
+		shares: map[string]*Share{
+			"share-1": {
+				ID:          "share-1",
+				Code:        "abcd",
+				Kind:        shareKindClipboardText,
+				Name:        "clip",
+				TextContent: full,
+			},
+		},
+		uploads: make(map[string]*uploadSession),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/s/abcd/text", nil)
+	rec := httptest.NewRecorder()
+	mgr.handleShare(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+	if rec.Body.String() != full {
+		t.Fatalf("expected full clipboard text")
+	}
+}
+
+func TestServeShareTextReturnsFullFileText(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "full.txt")
+	full := strings.Repeat("line-", 600)
+	if err := os.WriteFile(filePath, []byte(full), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	mgr := &Manager{
+		cfg:       DefaultConfig(),
+		templates: mustParseTemplates(),
+		shares: map[string]*Share{
+			"share-1": {
+				ID:   "share-1",
+				Code: "abcd",
+				Kind: shareKindFile,
+				Name: "full",
+				Path: filePath,
+			},
+		},
+		uploads: make(map[string]*uploadSession),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/s/abcd/text", nil)
+	rec := httptest.NewRecorder()
+	mgr.handleShare(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+	if rec.Body.String() != full {
+		t.Fatalf("expected full file text")
 	}
 }
 

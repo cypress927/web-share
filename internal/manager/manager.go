@@ -126,7 +126,7 @@ type publicShareCard struct {
 	Unavailable   bool
 	Status        string
 	PreviewText   string
-	CopyText      string
+	CopyURL       string
 	FileName      string
 	FileSize      string
 	DownloadURL   string
@@ -443,6 +443,8 @@ func (m *Manager) handleShare(w http.ResponseWriter, r *http.Request) {
 		m.renderSharePage(w, r, share)
 	case len(parts) == 2 && parts[1] == "raw" && (r.Method == http.MethodGet || r.Method == http.MethodHead):
 		m.serveShareRaw(w, r, share)
+	case len(parts) == 2 && parts[1] == "text" && r.Method == http.MethodGet:
+		m.serveShareText(w, r, share)
 	case len(parts) == 2 && parts[1] == "content" && (r.Method == http.MethodGet || r.Method == http.MethodHead):
 		m.serveShareContent(w, r, share)
 	case len(parts) == 2 && parts[1] == "archive" && r.Method == http.MethodGet:
@@ -649,7 +651,7 @@ func (m *Manager) listVisibleShares() []publicShareCard {
 		kind, previewText := buildSharePreview(share, cardPreviewTextLimit)
 		if kind == "text" {
 			card.PreviewText = previewText
-			card.CopyText = previewText
+			card.CopyURL = fmt.Sprintf("/s/%s/text", share.Code)
 			card.ShowCopy = true
 		} else if kind == "image" {
 			card.ContentURL = fmt.Sprintf("/s/%s/content", share.Code)
@@ -985,6 +987,40 @@ func (m *Manager) serveShareContent(w http.ResponseWriter, r *http.Request, shar
 		w.Header().Set("Cache-Control", "no-store")
 		http.ServeContent(w, r, info.Name(), info.ModTime(), file)
 	}
+}
+
+func (m *Manager) serveShareText(w http.ResponseWriter, r *http.Request, share *Share) {
+	switch share.Kind {
+	case shareKindClipboardText:
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = io.WriteString(w, share.TextContent)
+		return
+	case shareKindClipboardImage:
+		http.NotFound(w, r)
+		return
+	}
+
+	if share.IsDir || !isTextExtension(filepath.Ext(share.Path)) {
+		http.NotFound(w, r)
+		return
+	}
+
+	raw, err := os.ReadFile(share.Path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "failed to read file", http.StatusInternalServerError)
+		return
+	}
+	if !utf8.Valid(raw) {
+		raw = bytes.ToValidUTF8(raw, []byte("?"))
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(raw)
 }
 
 func buildSharePreview(share *Share, maxRunes int) (string, string) {
