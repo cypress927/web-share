@@ -280,10 +280,17 @@
 - 文件/文件夹列表会逐条创建独立分享
 - 批量创建中途失败时，不会回滚已经成功创建的分享
 
-### 计划任务（可选）
+### 自启动
 
-- 提供脚本注册当前用户登录触发的计划任务，用于自动启动管理器和托盘
-- 默认任务名：`WebShare.AutoStart`
+- 当前内置实现使用注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+- 自启动命令会拉起 `web-share.exe start`
+- 作用是自动启动管理器和托盘
+- 注册表项名称默认为：`WebShare.AutoStart`
+
+### 兼容计划任务（旧脚本）
+
+- `scripts/` 目录下保留了旧的计划任务脚本，用于兼容旧安装流程
+- 默认任务名仍为：`WebShare.AutoStart`
 - 安装时若任务已存在：
   - 默认报错
   - 使用安装脚本 `-Force` 可覆盖重建

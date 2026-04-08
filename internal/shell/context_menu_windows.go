@@ -5,23 +5,24 @@ package shell
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"unicode/utf16"
+
+	"golang.org/x/sys/windows/registry"
 )
 
 const (
-	fileMenuKey         = `HKCU\Software\Classes\*\shell\web-share`
-	folderMenuKey       = `HKCU\Software\Classes\Directory\shell\web-share`
-	fileCommandStoreKey = `HKCU\Software\Classes\WebShare.FileContextMenu`
-	fileReadOnlyKey     = `HKCU\Software\Classes\WebShare.FileContextMenu\shell\readonly`
-	fileReadOnlyCmd     = `HKCU\Software\Classes\WebShare.FileContextMenu\shell\readonly\command`
-	folderCommandStore  = `HKCU\Software\Classes\WebShare.DirectoryContextMenu`
-	folderReadOnlyKey   = `HKCU\Software\Classes\WebShare.DirectoryContextMenu\shell\readonly`
-	folderReadOnlyCmd   = `HKCU\Software\Classes\WebShare.DirectoryContextMenu\shell\readonly\command`
-	folderPasswordKey   = `HKCU\Software\Classes\WebShare.DirectoryContextMenu\shell\password`
-	folderPasswordCmd   = `HKCU\Software\Classes\WebShare.DirectoryContextMenu\shell\password\command`
+	fileMenuKey         = `Software\Classes\*\shell\web-share`
+	folderMenuKey       = `Software\Classes\Directory\shell\web-share`
+	fileCommandStoreKey = `Software\Classes\WebShare.FileContextMenu`
+	fileReadOnlyKey     = `Software\Classes\WebShare.FileContextMenu\shell\readonly`
+	fileReadOnlyCmd     = `Software\Classes\WebShare.FileContextMenu\shell\readonly\command`
+	folderCommandStore  = `Software\Classes\WebShare.DirectoryContextMenu`
+	folderReadOnlyKey   = `Software\Classes\WebShare.DirectoryContextMenu\shell\readonly`
+	folderReadOnlyCmd   = `Software\Classes\WebShare.DirectoryContextMenu\shell\readonly\command`
+	folderPasswordKey   = `Software\Classes\WebShare.DirectoryContextMenu\shell\password`
+	folderPasswordCmd   = `Software\Classes\WebShare.DirectoryContextMenu\shell\password\command`
 )
 
 func InstallContextMenu(exePath string) error {
@@ -36,36 +37,52 @@ func InstallContextMenuWithLanguage(exePath, lang string) error {
 		return err
 	}
 
-	commands := [][]string{
-		{"delete", fileMenuKey, "/f"},
-		{"delete", folderMenuKey, "/f"},
-		{"delete", fileCommandStoreKey, "/f"},
-		{"delete", folderCommandStore, "/f"},
-		{"add", fileMenuKey, "/f"},
-		{"add", fileMenuKey, "/v", "MUIVerb", "/d", menu.rootVerb, "/f"},
-		{"add", fileMenuKey, "/v", "Icon", "/d", exePath, "/f"},
-		{"add", fileMenuKey, "/v", "ExtendedSubCommandsKey", "/d", "WebShare.FileContextMenu", "/f"},
-		{"add", folderMenuKey, "/f"},
-		{"add", folderMenuKey, "/v", "MUIVerb", "/d", menu.rootVerb, "/f"},
-		{"add", folderMenuKey, "/v", "Icon", "/d", exePath, "/f"},
-		{"add", folderMenuKey, "/v", "ExtendedSubCommandsKey", "/d", "WebShare.DirectoryContextMenu", "/f"},
-		{"add", fileReadOnlyKey, "/v", "MUIVerb", "/d", menu.readOnlyVerb, "/f"},
-		{"add", fileReadOnlyCmd, "/ve", "/d", readOnlyCommand, "/f"},
-		{"add", folderReadOnlyKey, "/v", "MUIVerb", "/d", menu.readOnlyVerb, "/f"},
-		{"add", folderReadOnlyCmd, "/ve", "/d", readOnlyCommand, "/f"},
-		{"add", folderPasswordKey, "/v", "MUIVerb", "/d", menu.passwordVerb, "/f"},
-		{"add", folderPasswordCmd, "/ve", "/d", passwordCommand, "/f"},
-	}
+	_ = UninstallContextMenu()
 
-	for _, args := range commands {
-		if err := exec.Command("reg", args...).Run(); err != nil {
-			if args[0] == "delete" {
-				continue
-			}
-			return fmt.Errorf("run reg %v: %w", args, err)
-		}
+	if err := createKeyWithValues(fileMenuKey, map[string]string{
+		"MUIVerb":                menu.rootVerb,
+		"Icon":                   exePath,
+		"ExtendedSubCommandsKey": `WebShare.FileContextMenu`,
+	}); err != nil {
+		return err
 	}
-
+	if err := createKeyWithValues(folderMenuKey, map[string]string{
+		"MUIVerb":                menu.rootVerb,
+		"Icon":                   exePath,
+		"ExtendedSubCommandsKey": `WebShare.DirectoryContextMenu`,
+	}); err != nil {
+		return err
+	}
+	if err := createKeyWithValues(fileReadOnlyKey, map[string]string{
+		"MUIVerb": menu.readOnlyVerb,
+	}); err != nil {
+		return err
+	}
+	if err := createKeyWithValues(fileReadOnlyCmd, map[string]string{
+		"": readOnlyCommand,
+	}); err != nil {
+		return err
+	}
+	if err := createKeyWithValues(folderReadOnlyKey, map[string]string{
+		"MUIVerb": menu.readOnlyVerb,
+	}); err != nil {
+		return err
+	}
+	if err := createKeyWithValues(folderReadOnlyCmd, map[string]string{
+		"": readOnlyCommand,
+	}); err != nil {
+		return err
+	}
+	if err := createKeyWithValues(folderPasswordKey, map[string]string{
+		"MUIVerb": menu.passwordVerb,
+	}); err != nil {
+		return err
+	}
+	if err := createKeyWithValues(folderPasswordCmd, map[string]string{
+		"": passwordCommand,
+	}); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -79,19 +96,73 @@ func buildPasswordCommand(exePath, lang string) (string, error) {
 }
 
 func UninstallContextMenu() error {
-	commands := [][]string{
-		{"delete", fileMenuKey, "/f"},
-		{"delete", folderMenuKey, "/f"},
-		{"delete", fileCommandStoreKey, "/f"},
-		{"delete", folderCommandStore, "/f"},
+	keys := []string{
+		fileMenuKey,
+		folderMenuKey,
+		fileCommandStoreKey,
+		folderCommandStore,
 	}
+	for _, keyPath := range keys {
+		_ = deleteKeyTree(keyPath)
+	}
+	return nil
+}
 
-	for _, args := range commands {
-		if err := exec.Command("reg", args...).Run(); err != nil {
-			continue
+func ContextMenuInstalled() bool {
+	if exists, err := registryKeyExists(fileMenuKey); err != nil || !exists {
+		return false
+	}
+	exists, err := registryKeyExists(folderMenuKey)
+	return err == nil && exists
+}
+
+func createKeyWithValues(path string, values map[string]string) error {
+	key, _, err := registry.CreateKey(registry.CURRENT_USER, path, registry.SET_VALUE)
+	if err != nil {
+		return err
+	}
+	defer key.Close()
+	for name, value := range values {
+		if err := key.SetStringValue(name, value); err != nil {
+			return err
 		}
 	}
+	return nil
+}
 
+func registryKeyExists(path string) (bool, error) {
+	key, err := registry.OpenKey(registry.CURRENT_USER, path, registry.READ)
+	if err != nil {
+		if err == registry.ErrNotExist {
+			return false, nil
+		}
+		return false, err
+	}
+	defer key.Close()
+	return true, nil
+}
+
+func deleteKeyTree(path string) error {
+	key, err := registry.OpenKey(registry.CURRENT_USER, path, registry.ENUMERATE_SUB_KEYS|registry.QUERY_VALUE)
+	if err != nil {
+		if err == registry.ErrNotExist {
+			return nil
+		}
+		return err
+	}
+	names, err := key.ReadSubKeyNames(-1)
+	key.Close()
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if err := deleteKeyTree(path + `\` + name); err != nil {
+			return err
+		}
+	}
+	if err := registry.DeleteKey(registry.CURRENT_USER, path); err != nil && err != registry.ErrNotExist {
+		return err
+	}
 	return nil
 }
 

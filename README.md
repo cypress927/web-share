@@ -93,7 +93,7 @@ What the built-in install command does:
 
 - Persists the default system language directly to local settings
 - Installs the Windows context menu
-- Optionally installs a startup scheduled task
+- Optionally installs a per-user auto-start entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
 - Optionally starts manager and tray immediately
 
 Legacy wrapper script:
@@ -121,6 +121,11 @@ Script optional parameters:
 - `-ForceTask`
 - `-StartNow`
 - `-NotifyStart`
+
+Note:
+
+- Built-in `install/start/uninstall` now uses registry-based auto start
+- The legacy PowerShell scripts under `scripts/` still manage logon startup via Scheduled Task for compatibility
 
 ### Context Menu
 
@@ -182,25 +187,25 @@ Behavior:
 - Shows a startup success notification
 - Does not relaunch manager if it is already running
 
-Install startup task with the built-in installer:
+Enable auto start with the built-in installer:
 
 ```powershell
 .\web-share.exe install -lang en-US -startup-task=true -start-now=false
 ```
 
-Remove startup task with built-in uninstall:
+Remove auto start with built-in uninstall:
 
 ```powershell
 .\web-share.exe uninstall -remove-startup-task=true -remove-context-menu=false
 ```
 
-Legacy task scripts:
+Legacy Scheduled Task scripts:
 
 ```powershell
 .\scripts\install-startup-task.ps1 -ExePath .\web-share.exe -Language en-US
 ```
 
-Remove startup task:
+Remove Scheduled Task:
 
 ```powershell
 .\scripts\uninstall-startup-task.ps1 -TaskName WebShare.AutoStart
@@ -216,7 +221,7 @@ Remove startup task:
 The built-in uninstall command removes:
 
 - Context menu entries
-- Scheduled task
+- Registry-based auto-start entry
 - Running manager/tray processes
 - Generated prompt script cache
 - Optional local data under `%LOCALAPPDATA%\WebShare`
@@ -345,7 +350,7 @@ go build -o .\web-share.exe .\cmd\web-share
 
 - 直接把默认语言写入本地设置
 - 安装 Windows 右键菜单
-- 可选安装开机自启计划任务
+- 可选安装当前用户注册表自启动项 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
 - 可选立即启动后台管理器和托盘
 
 兼容脚本入口：
@@ -373,6 +378,11 @@ go build -o .\web-share.exe .\cmd\web-share
 - `-ForceTask`
 - `-StartNow`
 - `-NotifyStart`
+
+说明：
+
+- 内置 `install/start/uninstall` 已经改为使用注册表自启动
+- `scripts/` 目录下的旧 PowerShell 脚本仍然保留计划任务方式，作为兼容入口
 
 ### 右键菜单
 
@@ -434,19 +444,19 @@ go build -o .\web-share.exe .\cmd\web-share
 - 启动完成后弹出成功通知
 - 如果管理器本来已运行，不会重复拉起
 
-通过内置安装命令安装计划任务：
+通过内置安装命令启用自启动：
 
 ```powershell
 .\web-share.exe install -lang zh-CN -startup-task=true -start-now=false
 ```
 
-通过内置卸载命令移除计划任务：
+通过内置卸载命令移除自启动：
 
 ```powershell
 .\web-share.exe uninstall -remove-startup-task=true -remove-context-menu=false
 ```
 
-兼容计划任务脚本：
+兼容的计划任务脚本：
 
 ```powershell
 .\scripts\install-startup-task.ps1 -ExePath .\web-share.exe -Language zh-CN
@@ -468,7 +478,7 @@ go build -o .\web-share.exe .\cmd\web-share
 内置卸载命令会清理：
 
 - 右键菜单
-- 计划任务
+- 注册表自启动项
 - 后台管理器与托盘进程
 - 自动生成的密码输入脚本缓存
 - 可选删除 `%LOCALAPPDATA%\WebShare` 本地数据

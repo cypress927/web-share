@@ -53,7 +53,7 @@ It will:
 
 - Persist default language directly to local settings
 - Install context menu
-- Optionally install startup scheduled task
+- Optionally install a per-user auto-start entry in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
 - Optionally start manager and tray immediately
 
 Legacy wrapper script:
@@ -72,6 +72,11 @@ Default behavior:
 - `-InstallStartupTask` is enabled by default
 - `-StartNow` is enabled by default
 - `-NotifyStart` is enabled by default
+
+Note:
+
+- Built-in `install/start/uninstall` now uses registry-based auto start
+- Legacy scripts under `scripts/` still manage logon startup via Scheduled Task for compatibility
 
 If you want to install context menu only:
 
@@ -196,25 +201,25 @@ Legacy wrapper script:
 .\scripts\start-web-share.ps1 -ExePath .\web-share.exe -Language en-US
 ```
 
-Install logon startup task with built-in install:
+Enable auto start with built-in install:
 
 ```powershell
 .\web-share.exe install -lang en-US -startup-task=true -start-now=false
 ```
 
-Remove task with built-in uninstall:
+Remove auto start with built-in uninstall:
 
 ```powershell
 .\web-share.exe uninstall -remove-startup-task=true -remove-context-menu=false
 ```
 
-Legacy task scripts:
+Legacy Scheduled Task scripts:
 
 ```powershell
 .\scripts\install-startup-task.ps1 -ExePath .\web-share.exe -Language en-US
 ```
 
-Remove task:
+Remove Scheduled Task:
 
 ```powershell
 .\scripts\uninstall-startup-task.ps1 -TaskName WebShare.AutoStart
@@ -246,7 +251,8 @@ Legacy wrapper script:
 The unified uninstall script removes:
 
 - Context menu
-- Startup task
+- Built-in uninstall removes the registry auto-start entry
+- Legacy scripts remove the Scheduled Task entry
 - Running manager/tray processes
 - Generated prompt script
 - Optional local data directory
@@ -304,7 +310,7 @@ go build -ldflags="-H=windowsgui" -o .\web-share.exe .\cmd\web-share
 
 - 直接写入默认语言到本地设置
 - 安装右键菜单
-- 可选安装开机计划任务
+- 可选安装当前用户注册表自启动项 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
 - 可选立即启动 manager 和 tray
 
 兼容脚本入口：
@@ -323,6 +329,11 @@ go build -ldflags="-H=windowsgui" -o .\web-share.exe .\cmd\web-share
 - `-InstallStartupTask` 默认开启
 - `-StartNow` 默认开启
 - `-NotifyStart` 默认开启
+
+说明：
+
+- 内置 `install/start/uninstall` 已改为使用注册表自启动
+- `scripts/` 目录下的旧脚本仍保留计划任务实现，作为兼容入口
 
 如果只想单独安装右键菜单：
 
@@ -451,19 +462,19 @@ http://<局域网IP>:21910/s/<share-code>
 .\scripts\start-web-share.ps1 -ExePath .\web-share.exe -Language zh-CN
 ```
 
-通过内置安装命令安装计划任务：
+通过内置安装命令启用自启动：
 
 ```powershell
 .\web-share.exe install -lang zh-CN -startup-task=true -start-now=false
 ```
 
-通过内置卸载命令移除计划任务：
+通过内置卸载命令移除自启动：
 
 ```powershell
 .\web-share.exe uninstall -remove-startup-task=true -remove-context-menu=false
 ```
 
-兼容计划任务脚本：
+兼容的计划任务脚本：
 
 ```powershell
 .\scripts\install-startup-task.ps1 -ExePath .\web-share.exe -Language zh-CN
@@ -501,7 +512,8 @@ http://<局域网IP>:21910/s/<share-code>
 统一卸载脚本会清理：
 
 - 右键菜单
-- 计划任务
+- 内置卸载会移除注册表自启动项
+- 兼容脚本会移除计划任务
 - 管理器和托盘进程
 - 自动生成的密码输入脚本
 - 可选本地数据目录

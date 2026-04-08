@@ -42,6 +42,8 @@ var i18n = map[string]map[string]string{
 		"manage.stop_failed":                 "停止分享失败",
 		"manage.default_lang":                "默认语言",
 		"manage.default_lang_apply":          "设为默认",
+		"manage.system_setup":                "系统初始化",
+		"manage.system_settings":             "系统设置",
 		"manage.path_clipboard_snapshot":     "剪贴板快照",
 		"manage.mode_upload_enabled":         "上传已启用",
 		"manage.mode_readonly":               "只读",
@@ -111,6 +113,49 @@ var i18n = map[string]map[string]string{
 		"lang.zh":                            "中文",
 		"lang.en":                            "English",
 		"lang.switch":                        "语言",
+		"setup.title":                        "初始化 Web Share",
+		"setup.subtitle":                     "通过这个本地页面完成语言选择、右键菜单安装、托盘启动和开机自启设置。",
+		"setup.section_language":             "默认语言",
+		"setup.section_actions":              "初始化动作",
+		"setup.section_status":               "当前状态",
+		"setup.apply":                        "应用初始化设置",
+		"setup.open_manage":                  "进入管理页面",
+		"setup.install_context":              "安装右键菜单",
+		"setup.enable_autostart":             "启用开机自启",
+		"setup.start_tray":                   "立即启动托盘",
+		"setup.complete":                     "标记初始化完成",
+		"setup.completed_yes":                "已完成",
+		"setup.completed_no":                 "未完成",
+		"setup.status_manager":               "管理器",
+		"setup.status_tray":                  "托盘",
+		"setup.status_context":               "右键菜单",
+		"setup.status_autostart":             "开机自启",
+		"setup.status_running":               "运行中",
+		"setup.status_stopped":               "未运行",
+		"setup.status_installed":             "已安装",
+		"setup.status_missing":               "未安装",
+		"setup.status_enabled":               "已启用",
+		"setup.status_disabled":              "未启用",
+		"setup.apply_ok":                     "初始化设置已应用。",
+		"setup.apply_failed":                 "初始化设置应用失败。",
+		"system.title":                       "系统设置",
+		"system.subtitle":                    "在这里调整默认语言、右键菜单、开机自启、托盘和初始化状态。",
+		"system.section_status":              "当前状态",
+		"system.section_language":            "默认语言",
+		"system.section_actions":             "系统操作",
+		"system.action_save_language":        "保存语言",
+		"system.action_install_context":      "安装右键菜单",
+		"system.action_remove_context":       "卸载右键菜单",
+		"system.action_enable_autostart":     "启用开机自启",
+		"system.action_disable_autostart":    "禁用开机自启",
+		"system.action_start_tray":           "启动托盘",
+		"system.action_stop_tray":            "停止托盘",
+		"system.action_mark_setup_done":      "标记初始化完成",
+		"system.action_mark_setup_todo":      "标记未完成初始化",
+		"system.apply_ok":                    "系统设置已应用。",
+		"system.apply_failed":                "系统设置应用失败。",
+		"system.back_manage":                 "返回管理页面",
+		"system.open_setup":                  "打开初始化页面",
 	},
 	langEN: {
 		"site.brand":                         "Web Share",
@@ -136,6 +181,8 @@ var i18n = map[string]map[string]string{
 		"manage.stop_failed":                 "Failed to stop share",
 		"manage.default_lang":                "Default Language",
 		"manage.default_lang_apply":          "Apply",
+		"manage.system_setup":                "System Setup",
+		"manage.system_settings":             "System Settings",
 		"manage.path_clipboard_snapshot":     "Clipboard Snapshot",
 		"manage.mode_upload_enabled":         "Upload Enabled",
 		"manage.mode_readonly":               "Read Only",
@@ -205,6 +252,49 @@ var i18n = map[string]map[string]string{
 		"lang.zh":                            "中文",
 		"lang.en":                            "English",
 		"lang.switch":                        "Language",
+		"setup.title":                        "Set Up Web Share",
+		"setup.subtitle":                     "Use this local page to choose language, install context menu, start tray, and enable auto start.",
+		"setup.section_language":             "Default Language",
+		"setup.section_actions":              "Setup Actions",
+		"setup.section_status":               "Current Status",
+		"setup.apply":                        "Apply Setup",
+		"setup.open_manage":                  "Open Manager",
+		"setup.install_context":              "Install Context Menu",
+		"setup.enable_autostart":             "Enable Auto Start",
+		"setup.start_tray":                   "Start Tray Now",
+		"setup.complete":                     "Mark Setup Completed",
+		"setup.completed_yes":                "Completed",
+		"setup.completed_no":                 "Not Completed",
+		"setup.status_manager":               "Manager",
+		"setup.status_tray":                  "Tray",
+		"setup.status_context":               "Context Menu",
+		"setup.status_autostart":             "Auto Start",
+		"setup.status_running":               "Running",
+		"setup.status_stopped":               "Stopped",
+		"setup.status_installed":             "Installed",
+		"setup.status_missing":               "Missing",
+		"setup.status_enabled":               "Enabled",
+		"setup.status_disabled":              "Disabled",
+		"setup.apply_ok":                     "Setup settings applied.",
+		"setup.apply_failed":                 "Failed to apply setup settings.",
+		"system.title":                       "System Settings",
+		"system.subtitle":                    "Adjust default language, context menu, auto start, tray, and setup state here.",
+		"system.section_status":              "Current Status",
+		"system.section_language":            "Default Language",
+		"system.section_actions":             "System Actions",
+		"system.action_save_language":        "Save Language",
+		"system.action_install_context":      "Install Context Menu",
+		"system.action_remove_context":       "Remove Context Menu",
+		"system.action_enable_autostart":     "Enable Auto Start",
+		"system.action_disable_autostart":    "Disable Auto Start",
+		"system.action_start_tray":           "Start Tray",
+		"system.action_stop_tray":            "Stop Tray",
+		"system.action_mark_setup_done":      "Mark Setup Completed",
+		"system.action_mark_setup_todo":      "Mark Setup Not Completed",
+		"system.apply_ok":                    "System settings applied.",
+		"system.apply_failed":                "Failed to apply system settings.",
+		"system.back_manage":                 "Back to Manager",
+		"system.open_setup":                  "Open Setup Page",
 	},
 }
 
@@ -327,4 +417,20 @@ func SetSystemDefaultLanguage(lang string) error {
 		return err
 	}
 	return store.SetDefaultLanguage(lang)
+}
+
+func SetupCompleted() bool {
+	dbPath, err := resolveDBPath("")
+	if err != nil {
+		return false
+	}
+	store, err := openSettingsStore(dbPath)
+	if err != nil {
+		return false
+	}
+	done, err := store.GetSetupCompleted()
+	if err != nil {
+		return false
+	}
+	return done
 }

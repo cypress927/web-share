@@ -51,7 +51,7 @@
 
 - 为什么要运行脚本
 - 为什么语言和右键菜单要单独处理
-- 为什么有 manager、tray、startup task 的区别
+- 为什么有 manager、tray、auto-start 的区别
 
 用户只想完成“安装并使用”。
 
@@ -135,7 +135,7 @@ web-share.exe
 
 - 写入默认语言
 - 注册右键菜单
-- 注册计划任务或开机自启项
+- 注册自启动项
 - 启动 manager
 - 启动 tray
 - 弹出成功通知
@@ -258,7 +258,7 @@ func DetectStatus() Status
 
 ### 2. `internal/shell`
 
-继续保留与 Windows 注册表、托盘进程、计划任务、浏览器拉起等系统交互相关能力，但只负责“低层动作”，不要承担安装流程编排。
+继续保留与 Windows 注册表、托盘进程、浏览器拉起等系统交互相关能力，但只负责“低层动作”，不要承担安装流程编排。
 
 ### 3. `internal/app`
 

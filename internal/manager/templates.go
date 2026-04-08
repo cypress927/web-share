@@ -321,6 +321,646 @@ const homeHTML = `{{define "home"}}<!DOCTYPE html>
 </html>{{end}}
 `
 
+const setupHTML = `{{define "setup"}}<!DOCTYPE html>
+<html lang="{{.CurrentLang}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.Title}}</title>
+  <style>
+    :root {
+      --bg: #f2ede4;
+      --panel: rgba(255,255,255,0.9);
+      --line: #d6cbbb;
+      --text: #241d16;
+      --muted: #6c655d;
+      --accent: #0d5c63;
+      --warm: #c05a2b;
+      --ok: #1f7a52;
+      --err: #9d3527;
+      --shadow: 0 22px 60px rgba(39, 29, 20, 0.12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 18px;
+      font-family: "Segoe UI", "PingFang SC", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(192,90,43,0.14), transparent 26%),
+        radial-gradient(circle at bottom right, rgba(13,92,99,0.14), transparent 28%),
+        linear-gradient(135deg, #ece4d7 0%, #f8f4ed 46%, #ece8de 100%);
+    }
+    .shell {
+      max-width: 980px;
+      margin: 0 auto;
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.7);
+      border-radius: 28px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      backdrop-filter: blur(10px);
+    }
+    .hero {
+      padding: 26px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(135deg, rgba(13,92,99,0.08), rgba(192,90,43,0.08));
+    }
+    .lang-switch {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+    .lang-switch a.active { font-weight: 700; text-decoration: underline; }
+    .eyebrow {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(13,92,99,0.12);
+      color: var(--accent);
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 14px 0 8px; font-size: clamp(30px, 5vw, 44px); }
+    p { margin: 0; color: var(--muted); line-height: 1.6; }
+    .content {
+      padding: 20px;
+      display: grid;
+      gap: 18px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      padding: 18px;
+      background: rgba(255,255,255,0.78);
+    }
+    .section-title {
+      margin: 0 0 14px;
+      font-size: 18px;
+    }
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .status-item {
+      border: 1px solid rgba(214,203,187,0.8);
+      border-radius: 16px;
+      padding: 12px;
+      background: rgba(255,255,255,0.92);
+    }
+    .status-label {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .status-value {
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .status-value.ok { color: var(--ok); }
+    .status-value.warn { color: var(--warm); }
+    .flash {
+      padding: 12px 14px;
+      border-radius: 14px;
+      font-size: 14px;
+    }
+    .flash.ok {
+      background: rgba(31,122,82,0.1);
+      color: var(--ok);
+    }
+    .flash.err {
+      background: rgba(157,53,39,0.1);
+      color: var(--err);
+    }
+    .flash[hidden] { display: none; }
+    .flash[hidden] { display: none; }
+    .form-grid {
+      display: grid;
+      gap: 14px;
+    }
+    .field { display: grid; gap: 8px; }
+    select {
+      width: 100%;
+      max-width: 260px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      font: inherit;
+      background: #fff;
+    }
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text);
+      margin-top: 8px;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 6px;
+    }
+    button, .link-btn {
+      border: 0;
+      border-radius: 12px;
+      padding: 11px 16px;
+      background: var(--accent);
+      color: #fff;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .link-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(13,92,99,0.1);
+      color: var(--accent);
+      border: 1px solid rgba(13,92,99,0.18);
+    }
+    @media (max-width: 720px) {
+      body { padding: 10px; }
+      .hero, .content { padding: 16px; }
+      .status-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="hero">
+      <div class="lang-switch">
+        <a href="{{.LangENURL}}" class="{{if eq .CurrentLang "en-US"}}active{{end}}">{{tr .CurrentLang "lang.en"}}</a>
+        <a href="{{.LangZHURL}}" class="{{if eq .CurrentLang "zh-CN"}}active{{end}}">{{tr .CurrentLang "lang.zh"}}</a>
+      </div>
+      <span class="eyebrow">Web Share</span>
+      <h1>{{tr .CurrentLang "setup.title"}}</h1>
+      <p>{{tr .CurrentLang "setup.subtitle"}}</p>
+    </div>
+    <div class="content">
+      <div id="setup-flash-ok" class="flash ok" {{if not .ApplySuccess}}hidden{{end}}>{{.ApplySuccess}}</div>
+      <div id="setup-flash-err" class="flash err" {{if not .ApplyError}}hidden{{end}}>{{.ApplyError}}</div>
+      <form id="setup-form" class="card form-grid" method="post" action="/api/setup/apply?lang={{.CurrentLang}}">
+        <div class="field">
+          <label class="section-title" for="default_lang">{{tr .CurrentLang "setup.section_language"}}</label>
+          <select id="default_lang" name="default_lang">
+            <option value="en-US" {{if eq .DefaultLang "en-US"}}selected{{end}}>{{tr .CurrentLang "lang.en"}}</option>
+            <option value="zh-CN" {{if eq .DefaultLang "zh-CN"}}selected{{end}}>{{tr .CurrentLang "lang.zh"}}</option>
+          </select>
+        </div>
+        <div>
+          <div class="section-title">{{tr .CurrentLang "setup.section_actions"}}</div>
+          <label class="check"><input type="checkbox" name="install_context_menu" checked> {{tr .CurrentLang "setup.install_context"}}</label>
+          <label class="check"><input type="checkbox" name="enable_autostart"> {{tr .CurrentLang "setup.enable_autostart"}}</label>
+          <label class="check"><input type="checkbox" name="start_tray" checked> {{tr .CurrentLang "setup.start_tray"}}</label>
+          <label class="check"><input type="checkbox" name="complete_setup" checked> {{tr .CurrentLang "setup.complete"}}</label>
+        </div>
+        <div class="actions">
+          <button type="submit">{{tr .CurrentLang "setup.apply"}}</button>
+          <a class="link-btn" href="{{.ManageURL}}">{{tr .CurrentLang "setup.open_manage"}}</a>
+        </div>
+      </form>
+      <div class="card">
+        <div class="section-title">{{tr .CurrentLang "setup.section_status"}}</div>
+        <div class="status-grid">
+          <div class="status-item">
+            <div class="status-label">{{tr .CurrentLang "setup.complete"}}</div>
+            <div id="setup-status-complete" class="status-value {{if .SetupCompleted}}ok{{else}}warn{{end}}">{{if .SetupCompleted}}{{tr .CurrentLang "setup.completed_yes"}}{{else}}{{tr .CurrentLang "setup.completed_no"}}{{end}}</div>
+          </div>
+          <div class="status-item">
+            <div class="status-label">{{tr .CurrentLang "setup.status_manager"}}</div>
+            <div class="status-value ok">{{tr .CurrentLang "setup.status_running"}}</div>
+          </div>
+          <div class="status-item">
+            <div class="status-label">{{tr .CurrentLang "setup.status_tray"}}</div>
+            <div id="setup-status-tray" class="status-value {{if .TrayRunning}}ok{{else}}warn{{end}}">{{if .TrayRunning}}{{tr .CurrentLang "setup.status_running"}}{{else}}{{tr .CurrentLang "setup.status_stopped"}}{{end}}</div>
+          </div>
+          <div class="status-item">
+            <div class="status-label">{{tr .CurrentLang "setup.status_context"}}</div>
+            <div id="setup-status-context" class="status-value {{if .ContextInstalled}}ok{{else}}warn{{end}}">{{if .ContextInstalled}}{{tr .CurrentLang "setup.status_installed"}}{{else}}{{tr .CurrentLang "setup.status_missing"}}{{end}}</div>
+          </div>
+          <div class="status-item">
+            <div class="status-label">{{tr .CurrentLang "setup.status_autostart"}}</div>
+            <div id="setup-status-autostart" class="status-value {{if .AutostartEnabled}}ok{{else}}warn{{end}}">{{if .AutostartEnabled}}{{tr .CurrentLang "setup.status_enabled"}}{{else}}{{tr .CurrentLang "setup.status_disabled"}}{{end}}</div>
+          </div>
+          <div class="status-item">
+            <div class="status-label">{{tr .CurrentLang "setup.section_language"}}</div>
+            <div id="setup-status-language" class="status-value">{{if eq .DefaultLang "zh-CN"}}{{tr .CurrentLang "lang.zh"}}{{else}}{{tr .CurrentLang "lang.en"}}{{end}}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    (() => {
+      const form = document.getElementById('setup-form');
+      if (!form) return;
+      const okBox = document.getElementById('setup-flash-ok');
+      const errBox = document.getElementById('setup-flash-err');
+      const labels = {
+        completed: {{printf "%q" (tr .CurrentLang "setup.completed_yes")}},
+        pending: {{printf "%q" (tr .CurrentLang "setup.completed_no")}},
+        running: {{printf "%q" (tr .CurrentLang "setup.status_running")}},
+        stopped: {{printf "%q" (tr .CurrentLang "setup.status_stopped")}},
+        installed: {{printf "%q" (tr .CurrentLang "setup.status_installed")}},
+        missing: {{printf "%q" (tr .CurrentLang "setup.status_missing")}},
+        enabled: {{printf "%q" (tr .CurrentLang "setup.status_enabled")}},
+        disabled: {{printf "%q" (tr .CurrentLang "setup.status_disabled")}},
+        langEN: {{printf "%q" (tr .CurrentLang "lang.en")}},
+        langZH: {{printf "%q" (tr .CurrentLang "lang.zh")}}
+      };
+      function setFlash(target, text) {
+        okBox.hidden = target !== 'ok';
+        errBox.hidden = target !== 'err';
+        if (target === 'ok') okBox.textContent = text || '';
+        if (target === 'err') errBox.textContent = text || '';
+      }
+      function applyStatus(status) {
+        if (!status) return;
+        const complete = document.getElementById('setup-status-complete');
+        const tray = document.getElementById('setup-status-tray');
+        const context = document.getElementById('setup-status-context');
+        const auto = document.getElementById('setup-status-autostart');
+        const lang = document.getElementById('setup-status-language');
+        complete.textContent = status.setupCompleted ? labels.completed : labels.pending;
+        complete.className = 'status-value ' + (status.setupCompleted ? 'ok' : 'warn');
+        tray.textContent = status.trayRunning ? labels.running : labels.stopped;
+        tray.className = 'status-value ' + (status.trayRunning ? 'ok' : 'warn');
+        context.textContent = status.contextMenuInstalled ? labels.installed : labels.missing;
+        context.className = 'status-value ' + (status.contextMenuInstalled ? 'ok' : 'warn');
+        auto.textContent = status.autostartEnabled ? labels.enabled : labels.disabled;
+        auto.className = 'status-value ' + (status.autostartEnabled ? 'ok' : 'warn');
+        lang.textContent = status.defaultLanguage === 'zh-CN' ? labels.langZH : labels.langEN;
+        const langSelect = document.getElementById('default_lang');
+        if (langSelect && status.defaultLanguage) {
+          langSelect.value = status.defaultLanguage;
+        }
+      }
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const body = new URLSearchParams(new FormData(form));
+        try {
+          const resp = await fetch(form.action, {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'fetch', 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+            body: body.toString()
+          });
+          const data = await resp.json();
+          if (!resp.ok || !data.ok) {
+            setFlash('err', data.message || 'Request failed');
+            return;
+          }
+          setFlash('ok', data.message || '');
+          applyStatus(data.status);
+        } catch (_) {
+          setFlash('err', 'Request failed');
+        }
+      });
+    })();
+  </script>
+</body>
+</html>{{end}}
+`
+
+const systemHTML = `{{define "system"}}<!DOCTYPE html>
+<html lang="{{.CurrentLang}}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.Title}}</title>
+  <style>
+    :root {
+      --bg: #f2ede4;
+      --panel: rgba(255,255,255,0.9);
+      --line: #d6cbbb;
+      --text: #241d16;
+      --muted: #6c655d;
+      --accent: #0d5c63;
+      --warm: #c05a2b;
+      --ok: #1f7a52;
+      --err: #9d3527;
+      --shadow: 0 22px 60px rgba(39, 29, 20, 0.12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 18px;
+      font-family: "Segoe UI", "PingFang SC", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(192,90,43,0.14), transparent 26%),
+        radial-gradient(circle at bottom right, rgba(13,92,99,0.14), transparent 28%),
+        linear-gradient(135deg, #ece4d7 0%, #f8f4ed 46%, #ece8de 100%);
+    }
+    .shell {
+      max-width: 1040px;
+      margin: 0 auto;
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.7);
+      border-radius: 28px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      backdrop-filter: blur(10px);
+    }
+    .hero {
+      padding: 26px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(135deg, rgba(13,92,99,0.08), rgba(192,90,43,0.08));
+    }
+    .lang-switch {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+    .lang-switch a.active { font-weight: 700; text-decoration: underline; }
+    .eyebrow {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(13,92,99,0.12);
+      color: var(--accent);
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 14px 0 8px; font-size: clamp(30px, 5vw, 44px); }
+    p { margin: 0; color: var(--muted); line-height: 1.6; }
+    .content {
+      padding: 20px;
+      display: grid;
+      gap: 18px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      padding: 18px;
+      background: rgba(255,255,255,0.78);
+    }
+    .section-title {
+      margin: 0 0 14px;
+      font-size: 18px;
+    }
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .status-item {
+      border: 1px solid rgba(214,203,187,0.8);
+      border-radius: 16px;
+      padding: 12px;
+      background: rgba(255,255,255,0.92);
+    }
+    .status-label {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .status-value {
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .status-value.ok { color: var(--ok); }
+    .status-value.warn { color: var(--warm); }
+    .flash {
+      padding: 12px 14px;
+      border-radius: 14px;
+      font-size: 14px;
+    }
+    .flash.ok {
+      background: rgba(31,122,82,0.1);
+      color: var(--ok);
+    }
+    .flash.err {
+      background: rgba(157,53,39,0.1);
+      color: var(--err);
+    }
+    .action-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .field { display: grid; gap: 8px; }
+    select {
+      width: 100%;
+      max-width: 260px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      font: inherit;
+      background: #fff;
+    }
+    button, .link-btn {
+      border: 0;
+      border-radius: 12px;
+      padding: 11px 16px;
+      background: var(--accent);
+      color: #fff;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      width: 100%;
+    }
+    .link-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .link-btn {
+      width: auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(13,92,99,0.1);
+      color: var(--accent);
+      border: 1px solid rgba(13,92,99,0.18);
+    }
+    @media (max-width: 720px) {
+      body { padding: 10px; }
+      .hero, .content { padding: 16px; }
+      .status-grid, .action-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="hero">
+      <div class="lang-switch">
+        <a href="{{.LangENURL}}" class="{{if eq .CurrentLang "en-US"}}active{{end}}">{{tr .CurrentLang "lang.en"}}</a>
+        <a href="{{.LangZHURL}}" class="{{if eq .CurrentLang "zh-CN"}}active{{end}}">{{tr .CurrentLang "lang.zh"}}</a>
+      </div>
+      <span class="eyebrow">Web Share</span>
+      <h1>{{tr .CurrentLang "system.title"}}</h1>
+      <p>{{tr .CurrentLang "system.subtitle"}}</p>
+    </div>
+    <div class="content">
+      <div id="system-flash-ok" class="flash ok" {{if not .ApplySuccess}}hidden{{end}}>{{.ApplySuccess}}</div>
+      <div id="system-flash-err" class="flash err" {{if not .ApplyError}}hidden{{end}}>{{.ApplyError}}</div>
+      <div class="card">
+        <div class="section-title">{{tr .CurrentLang "system.section_status"}}</div>
+        <div class="status-grid">
+          <div class="status-item">
+            <div class="status-label">{{tr .CurrentLang "setup.complete"}}</div>
+            <div id="system-status-complete" class="status-value {{if .SetupCompleted}}ok{{else}}warn{{end}}">{{if .SetupCompleted}}{{tr .CurrentLang "setup.completed_yes"}}{{else}}{{tr .CurrentLang "setup.completed_no"}}{{end}}</div>
+          </div>
+          <div class="status-item">
+            <div class="status-label">{{tr .CurrentLang "setup.status_tray"}}</div>
+            <div id="system-status-tray" class="status-value {{if .TrayRunning}}ok{{else}}warn{{end}}">{{if .TrayRunning}}{{tr .CurrentLang "setup.status_running"}}{{else}}{{tr .CurrentLang "setup.status_stopped"}}{{end}}</div>
+          </div>
+          <div class="status-item">
+            <div class="status-label">{{tr .CurrentLang "setup.status_context"}}</div>
+            <div id="system-status-context" class="status-value {{if .ContextInstalled}}ok{{else}}warn{{end}}">{{if .ContextInstalled}}{{tr .CurrentLang "setup.status_installed"}}{{else}}{{tr .CurrentLang "setup.status_missing"}}{{end}}</div>
+          </div>
+          <div class="status-item">
+            <div class="status-label">{{tr .CurrentLang "setup.status_autostart"}}</div>
+            <div id="system-status-autostart" class="status-value {{if .AutostartEnabled}}ok{{else}}warn{{end}}">{{if .AutostartEnabled}}{{tr .CurrentLang "setup.status_enabled"}}{{else}}{{tr .CurrentLang "setup.status_disabled"}}{{end}}</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-title">{{tr .CurrentLang "system.section_language"}}</div>
+        <form id="system-language-form" class="field async-action-form" method="post" action="/api/system/apply?lang={{.CurrentLang}}">
+          <input type="hidden" name="action" value="save_language">
+          <select name="default_lang">
+            <option value="en-US" {{if eq .DefaultLang "en-US"}}selected{{end}}>{{tr .CurrentLang "lang.en"}}</option>
+            <option value="zh-CN" {{if eq .DefaultLang "zh-CN"}}selected{{end}}>{{tr .CurrentLang "lang.zh"}}</option>
+          </select>
+          <button type="submit">{{tr .CurrentLang "system.action_save_language"}}</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="section-title">{{tr .CurrentLang "system.section_actions"}}</div>
+        <div class="action-grid">
+          <form class="async-action-form" method="post" action="/api/system/apply?lang={{.CurrentLang}}">
+            <input type="hidden" name="default_lang" value="{{.DefaultLang}}">
+            <input type="hidden" name="action" value="install_context">
+            <button type="submit">{{tr .CurrentLang "system.action_install_context"}}</button>
+          </form>
+          <form class="async-action-form" method="post" action="/api/system/apply?lang={{.CurrentLang}}">
+            <input type="hidden" name="default_lang" value="{{.DefaultLang}}">
+            <input type="hidden" name="action" value="remove_context">
+            <button type="submit">{{tr .CurrentLang "system.action_remove_context"}}</button>
+          </form>
+          <form class="async-action-form" method="post" action="/api/system/apply?lang={{.CurrentLang}}">
+            <input type="hidden" name="default_lang" value="{{.DefaultLang}}">
+            <input type="hidden" name="action" value="enable_autostart">
+            <button type="submit">{{tr .CurrentLang "system.action_enable_autostart"}}</button>
+          </form>
+          <form class="async-action-form" method="post" action="/api/system/apply?lang={{.CurrentLang}}">
+            <input type="hidden" name="default_lang" value="{{.DefaultLang}}">
+            <input type="hidden" name="action" value="disable_autostart">
+            <button type="submit">{{tr .CurrentLang "system.action_disable_autostart"}}</button>
+          </form>
+          <form class="async-action-form" method="post" action="/api/system/apply?lang={{.CurrentLang}}">
+            <input type="hidden" name="default_lang" value="{{.DefaultLang}}">
+            <input type="hidden" name="action" value="start_tray">
+            <button type="submit">{{tr .CurrentLang "system.action_start_tray"}}</button>
+          </form>
+          <form class="async-action-form" method="post" action="/api/system/apply?lang={{.CurrentLang}}">
+            <input type="hidden" name="default_lang" value="{{.DefaultLang}}">
+            <input type="hidden" name="action" value="stop_tray">
+            <button type="submit">{{tr .CurrentLang "system.action_stop_tray"}}</button>
+          </form>
+          <form class="async-action-form" method="post" action="/api/system/apply?lang={{.CurrentLang}}">
+            <input type="hidden" name="default_lang" value="{{.DefaultLang}}">
+            <input type="hidden" name="action" value="mark_setup_done">
+            <button type="submit">{{tr .CurrentLang "system.action_mark_setup_done"}}</button>
+          </form>
+          <form class="async-action-form" method="post" action="/api/system/apply?lang={{.CurrentLang}}">
+            <input type="hidden" name="default_lang" value="{{.DefaultLang}}">
+            <input type="hidden" name="action" value="mark_setup_todo">
+            <button type="submit">{{tr .CurrentLang "system.action_mark_setup_todo"}}</button>
+          </form>
+        </div>
+      </div>
+      <div class="link-row">
+        <a class="link-btn" href="{{.ManageURL}}">{{tr .CurrentLang "system.back_manage"}}</a>
+        <a class="link-btn" href="{{.SetupURL}}">{{tr .CurrentLang "system.open_setup"}}</a>
+      </div>
+    </div>
+  </div>
+  <script>
+    (() => {
+      const forms = document.querySelectorAll('.async-action-form');
+      if (!forms.length) return;
+      const okBox = document.getElementById('system-flash-ok');
+      const errBox = document.getElementById('system-flash-err');
+      const labels = {
+        completed: {{printf "%q" (tr .CurrentLang "setup.completed_yes")}},
+        pending: {{printf "%q" (tr .CurrentLang "setup.completed_no")}},
+        running: {{printf "%q" (tr .CurrentLang "setup.status_running")}},
+        stopped: {{printf "%q" (tr .CurrentLang "setup.status_stopped")}},
+        installed: {{printf "%q" (tr .CurrentLang "setup.status_installed")}},
+        missing: {{printf "%q" (tr .CurrentLang "setup.status_missing")}},
+        enabled: {{printf "%q" (tr .CurrentLang "setup.status_enabled")}},
+        disabled: {{printf "%q" (tr .CurrentLang "setup.status_disabled")}}
+      };
+      function setFlash(target, text) {
+        okBox.hidden = target !== 'ok';
+        errBox.hidden = target !== 'err';
+        if (target === 'ok') okBox.textContent = text || '';
+        if (target === 'err') errBox.textContent = text || '';
+      }
+      function applyStatus(status) {
+        if (!status) return;
+        const complete = document.getElementById('system-status-complete');
+        const tray = document.getElementById('system-status-tray');
+        const context = document.getElementById('system-status-context');
+        const auto = document.getElementById('system-status-autostart');
+        complete.textContent = status.setupCompleted ? labels.completed : labels.pending;
+        complete.className = 'status-value ' + (status.setupCompleted ? 'ok' : 'warn');
+        tray.textContent = status.trayRunning ? labels.running : labels.stopped;
+        tray.className = 'status-value ' + (status.trayRunning ? 'ok' : 'warn');
+        context.textContent = status.contextMenuInstalled ? labels.installed : labels.missing;
+        context.className = 'status-value ' + (status.contextMenuInstalled ? 'ok' : 'warn');
+        auto.textContent = status.autostartEnabled ? labels.enabled : labels.disabled;
+        auto.className = 'status-value ' + (status.autostartEnabled ? 'ok' : 'warn');
+        const langSelect = document.querySelector('#system-language-form select[name="default_lang"]');
+        if (langSelect && status.defaultLanguage) {
+          langSelect.value = status.defaultLanguage;
+        }
+        document.querySelectorAll('.async-action-form input[name="default_lang"]').forEach((input) => {
+          input.value = status.defaultLanguage || input.value;
+        });
+      }
+      for (const form of forms) {
+        form.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          const body = new URLSearchParams(new FormData(form));
+          try {
+            const resp = await fetch(form.action, {
+              method: 'POST',
+              headers: { 'Accept': 'application/json', 'X-Requested-With': 'fetch', 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+              body: body.toString()
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data.ok) {
+              setFlash('err', data.message || 'Request failed');
+              return;
+            }
+            setFlash('ok', data.message || '');
+            applyStatus(data.status);
+          } catch (_) {
+            setFlash('err', 'Request failed');
+          }
+        });
+      }
+    })();
+  </script>
+</body>
+</html>{{end}}
+`
+
 const manageHTML = `{{define "manage"}}<!DOCTYPE html>
 <html lang="{{.CurrentLang}}">
 <head>
@@ -406,6 +1046,24 @@ const manageHTML = `{{define "manage"}}<!DOCTYPE html>
     .lang-default-form button {
       padding: 8px 12px;
       border-radius: 10px;
+    }
+    .hero-actions {
+      margin-top: 12px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .hero-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(13,92,99,0.18);
+      background: rgba(13,92,99,0.08);
+      color: var(--accent);
+      font-weight: 600;
+      text-decoration: none;
     }
     .cards {
       display: grid;
@@ -587,6 +1245,10 @@ const manageHTML = `{{define "manage"}}<!DOCTYPE html>
         </select>
         <button type="submit">{{tr .CurrentLang "manage.default_lang_apply"}}</button>
       </form>
+      <div class="hero-actions">
+        <a class="hero-link" href="{{.SetupURL}}">{{tr .CurrentLang "manage.system_setup"}}</a>
+        <a class="hero-link" href="{{.SystemURL}}">{{tr .CurrentLang "manage.system_settings"}}</a>
+      </div>
     </section>
     <section class="cards">
       {{if .Shares}}

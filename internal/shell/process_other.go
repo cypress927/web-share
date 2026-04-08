@@ -33,3 +33,19 @@ func SetCurrentUserRun(string, string) error {
 func DeleteCurrentUserRun(string) error {
 	return errors.New("Windows only")
 }
+
+func CurrentUserRunExists(string) (bool, error) {
+	return false, errors.New("Windows only")
+}
+
+func QuoteCommand(string, ...string) string {
+	return ""
+}
+
+func TrayRunning() (bool, error) {
+	return false, errors.New("Windows only")
+}
+
+func StopTray() error {
+	return errors.New("Windows only")
+}

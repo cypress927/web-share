@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -173,39 +172,35 @@ func Uninstall(opts UninstallOptions) error {
 
 func InstallStartupTask(exePath, taskName, lang string, notifyStart, force bool) error {
 	taskName = normalizeTaskName(taskName)
-	if taskExists(taskName) && !force {
-		return fmt.Errorf("scheduled task already exists: %s", taskName)
+	exists, err := shell.CurrentUserRunExists(taskName)
+	if err != nil {
+		return fmt.Errorf("check auto start: %w", err)
+	}
+	if exists && !force {
+		return fmt.Errorf("auto start entry already exists: %s", taskName)
 	}
 
-	action := fmt.Sprintf(`"%s" start -lang %s`, exePath, normalizeLanguage(lang))
+	action := shell.QuoteCommand(exePath, "start", "-lang", normalizeLanguage(lang))
 	if notifyStart {
 		action += " -notify-start=true"
 	}
-
-	args := []string{
-		"/Create",
-		"/SC", "ONLOGON",
-		"/TN", taskName,
-		"/TR", action,
-		"/RL", "LIMITED",
-	}
-	if force {
-		args = append(args, "/F")
-	}
-
-	if err := exec.Command("schtasks.exe", args...).Run(); err != nil {
-		return fmt.Errorf("install startup task: %w", err)
+	if err := shell.SetCurrentUserRun(taskName, action); err != nil {
+		return fmt.Errorf("install auto start: %w", err)
 	}
 	return nil
 }
 
 func UninstallStartupTask(taskName string) error {
 	taskName = normalizeTaskName(taskName)
-	if !taskExists(taskName) {
+	exists, err := shell.CurrentUserRunExists(taskName)
+	if err != nil {
+		return fmt.Errorf("check auto start: %w", err)
+	}
+	if !exists {
 		return nil
 	}
-	if err := exec.Command("schtasks.exe", "/Delete", "/TN", taskName, "/F").Run(); err != nil {
-		return fmt.Errorf("remove startup task: %w", err)
+	if err := shell.DeleteCurrentUserRun(taskName); err != nil {
+		return fmt.Errorf("remove auto start: %w", err)
 	}
 	return nil
 }
@@ -268,10 +263,6 @@ func installMessage(lang, key string) string {
 	default:
 		return ""
 	}
-}
-
-func taskExists(taskName string) bool {
-	return exec.Command("schtasks.exe", "/Query", "/TN", taskName).Run() == nil
 }
 
 func trayRunning() (bool, error) {

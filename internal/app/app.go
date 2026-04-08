@@ -23,8 +23,7 @@ import (
 
 func Run() error {
 	if len(os.Args) < 2 {
-		printUsage()
-		return nil
+		return runLauncher()
 	}
 
 	switch os.Args[1] {
@@ -63,6 +62,31 @@ func Run() error {
 
 		return fmt.Errorf("unknown command: %s", os.Args[1])
 	}
+}
+
+func runLauncher() error {
+	managerStarted, err := ensureManager()
+	if err != nil {
+		return err
+	}
+	if runtime.GOOS == "windows" {
+		if err := tray.EnsureStarted(); err != nil {
+			lang := manager.SystemDefaultLanguage()
+			_ = notify.Error("Web Share", appMessage(lang, "tray_start_failed")+err.Error())
+		}
+		if managerStarted {
+			lang := manager.SystemDefaultLanguage()
+			_ = notify.Info("Web Share", appMessage(lang, "started"))
+		}
+	}
+	target := manager.LocalManageURL()
+	if !manager.SetupCompleted() {
+		target = manager.LocalSetupURL()
+	}
+	if err := shell.OpenBrowser(target); err != nil {
+		return fmt.Errorf("open browser: %w", err)
+	}
+	return nil
 }
 
 func runEnqueue(args []string) error {
@@ -200,11 +224,11 @@ func runInstall(args []string) error {
 	exe := fs.String("exe", "", "Path to web-share.exe")
 	lang := fs.String("lang", defaultLang, "Default language (en-US or zh-CN)")
 	contextMenu := fs.Bool("context-menu", true, "Install Windows context menu")
-	startupTask := fs.Bool("startup-task", true, "Install startup task")
+	startupTask := fs.Bool("startup-task", true, "Install auto-start entry")
 	startNow := fs.Bool("start-now", true, "Start manager and tray immediately")
 	notifyStart := fs.Bool("notify-start", true, "Show startup notification")
-	forceTask := fs.Bool("force-task", false, "Replace existing startup task")
-	taskName := fs.String("task-name", "", "Scheduled task name")
+	forceTask := fs.Bool("force-task", false, "Replace existing auto-start entry")
+	taskName := fs.String("task-name", "", "Auto-start entry name")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -251,8 +275,8 @@ func runRepair(args []string) error {
 	lang := fs.String("lang", defaultLang, "Default language (en-US or zh-CN)")
 	startNow := fs.Bool("start-now", true, "Start manager and tray immediately")
 	notifyStart := fs.Bool("notify-start", true, "Show startup notification")
-	forceTask := fs.Bool("force-task", true, "Replace existing startup task")
-	taskName := fs.String("task-name", "", "Scheduled task name")
+	forceTask := fs.Bool("force-task", true, "Replace existing auto-start entry")
+	taskName := fs.String("task-name", "", "Auto-start entry name")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -274,11 +298,11 @@ func runUninstall(args []string) error {
 	defaultLang := manager.SystemDefaultLanguage()
 	exe := fs.String("exe", "", "Path to web-share.exe")
 	lang := fs.String("lang", defaultLang, "Language for messages (en-US or zh-CN)")
-	taskName := fs.String("task-name", "", "Scheduled task name")
+	taskName := fs.String("task-name", "", "Auto-start entry name")
 	removeData := fs.Bool("remove-data", false, "Remove local Web Share data")
 	stopProcesses := fs.Bool("stop-processes", true, "Stop manager and tray")
 	removeMenu := fs.Bool("remove-context-menu", true, "Remove Windows context menu")
-	removeAutostart := fs.Bool("remove-startup-task", true, "Remove startup task")
+	removeAutostart := fs.Bool("remove-startup-task", true, "Remove auto-start entry")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -402,7 +426,7 @@ Usage:
   web-share uninstall-context-menu
 
 Notes:
-  - install configures the default language, context menu, optional startup task, and optional immediate startup.
+  - install configures the default language, context menu, optional auto-start entry, and optional immediate startup.
   - start ensures the local manager and tray are running.
   - repair reapplies the standard Windows integration.
   - uninstall removes Windows integration and can optionally remove local data.
