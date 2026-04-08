@@ -706,6 +706,29 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       color: var(--accent-strong);
       font-weight: 600;
     }
+    .clipboard-text {
+      margin: 0;
+      padding: 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(215,200,178,0.8);
+      background: rgba(255,255,255,0.8);
+      color: var(--text);
+      line-height: 1.6;
+      font-size: 14px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 420px;
+      overflow: auto;
+    }
+    .preview-image {
+      width: 100%;
+      max-height: 520px;
+      object-fit: contain;
+      border-radius: 14px;
+      border: 1px solid rgba(215,200,178,0.8);
+      background: rgba(255,255,255,0.85);
+      padding: 8px;
+    }
     form {
       display: grid;
       gap: 12px;
@@ -840,11 +863,11 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
 <body>
   <div class="shell">
     <section class="hero">
-      <span class="eyebrow">{{if .IsDir}}Folder Share{{else}}File Share{{end}}</span>
+      <span class="eyebrow">{{.ShareTypeLabel}}</span>
       <h1>{{.SharedName}}</h1>
       <div class="hero-stack">
         <div class="code-chip">分享码 {{.ShareCode}}</div>
-        {{if .IsDir}}
+        {{if and .IsDir (not .Unavailable)}}
         <div class="crumbs">
           {{range $index, $crumb := .Breadcrumbs}}
             {{if $index}}<span class="crumb-sep">/</span>{{end}}
@@ -856,18 +879,26 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
           {{if .ParentURL}}<a class="back-link" href="{{.ParentURL}}">返回上一级</a>{{end}}
         </div>
         {{end}}
-        <div class="meta">路径: {{.SharedPath}}</div>
+        {{if .SharedPath}}<div class="meta">路径: {{.SharedPath}}</div>{{end}}
         <a class="hero-link" href="{{.Address}}">{{.Address}}</a>
       </div>
     </section>
     <section class="content">
       <div class="card">
-        <h2>{{if .IsDir}}内容列表{{else}}文件下载{{end}}</h2>
-        <p class="hint">{{if .IsDir}}目录默认只读。只有设置上传密码时，页面才允许上传文件到当前目录。{{else}}文件分享始终只读，可直接下载。{{end}}</p>
+        <h2>{{if eq .ShareKind "clipboard_text"}}剪贴板文本{{else if eq .ShareKind "clipboard_image"}}剪贴板图片{{else if .IsDir}}内容列表{{else}}文件下载{{end}}</h2>
+        <p class="hint">{{if eq .ShareKind "clipboard_text"}}该分享来自剪贴板文本快照，仅支持只读查看和下载。{{else if eq .ShareKind "clipboard_image"}}该分享来自剪贴板图片快照，可预览和下载原图。{{else if .IsDir}}目录默认只读。只有设置上传密码时，页面才允许上传文件到当前目录。{{else}}文件分享始终只读，可直接下载。{{end}}</p>
         {{if .ErrorMessage}}<div class="status error">{{.ErrorMessage}}</div>{{end}}
         {{if .SuccessMessage}}<div class="status ok">{{.SuccessMessage}}</div>{{end}}
         {{if .Unavailable}}
           <p class="readonly">该分享仍然存在于管理器中，但它指向的原始文件或文件夹已不存在。请联系分享者重新创建分享。</p>
+        {{else if eq .ShareKind "clipboard_text"}}
+          <pre class="clipboard-text">{{.TextContent}}</pre>
+          <div class="section-divider"></div>
+          <a class="download" href="{{.DownloadURL}}">下载文本</a>
+        {{else if eq .ShareKind "clipboard_image"}}
+          <img class="preview-image" src="{{.ContentURL}}" alt="Clipboard Image Preview">
+          <div class="section-divider"></div>
+          <a class="download" href="{{.DownloadURL}}">下载原图</a>
         {{else if .IsDir}}
           <div class="upload-actions">
             <a class="download" href="/s/{{.ShareCode}}/archive">下载整个分享内容</a>
@@ -912,6 +943,8 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
         <h2>{{if .UploadEnabled}}上传入口{{else}}访问模式{{end}}</h2>
         {{if .Unavailable}}
           <p class="readonly">该分享当前不可用，因此不能上传或下载内容。</p>
+        {{else if or (eq .ShareKind "clipboard_text") (eq .ShareKind "clipboard_image")}}
+          <p class="readonly">剪贴板分享为只读快照，不提供上传能力。</p>
         {{else if .UploadEnabled}}
           <p class="hint">输入分享者设置的上传密码后，可把文件分片上传到当前目录。上传过程中会显示实时进度。</p>
           <div class="section-divider"></div>

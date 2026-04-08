@@ -576,6 +576,72 @@ func TestUploadStartRejectsWhenCurrentDirectoryMissing(t *testing.T) {
 	}
 }
 
+func TestCreateClipboardTextShare(t *testing.T) {
+	mgr := &Manager{
+		cfg:       DefaultConfig(),
+		templates: mustParseTemplates(),
+		shares:    make(map[string]*Share),
+		uploads:   make(map[string]*uploadSession),
+	}
+
+	share, err := mgr.createShare(CreateShareRequest{
+		Kind:        shareKindClipboardText,
+		Name:        "剪贴板文本",
+		TextContent: "hello clipboard",
+	})
+	if err != nil {
+		t.Fatalf("create clipboard text share: %v", err)
+	}
+	if share.Kind != shareKindClipboardText {
+		t.Fatalf("expected kind %q, got %q", shareKindClipboardText, share.Kind)
+	}
+	if share.TextContent != "hello clipboard" {
+		t.Fatalf("expected text content, got %q", share.TextContent)
+	}
+}
+
+func TestClipboardImageShareContentAndRaw(t *testing.T) {
+	image := []byte{0x89, 0x50, 0x4E, 0x47}
+	mgr := &Manager{
+		cfg:       DefaultConfig(),
+		templates: mustParseTemplates(),
+		shares: map[string]*Share{
+			"share-1": {
+				ID:         "share-1",
+				Code:       "abcd",
+				Kind:       shareKindClipboardImage,
+				Name:       "clip-image",
+				BinaryData: image,
+				MimeType:   "image/png",
+			},
+		},
+		uploads: make(map[string]*uploadSession),
+	}
+
+	contentReq := httptest.NewRequest(http.MethodGet, "/s/abcd/content", nil)
+	contentRec := httptest.NewRecorder()
+	mgr.handleShare(contentRec, contentReq)
+	if contentRec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, contentRec.Code)
+	}
+	if got := contentRec.Header().Get("Content-Type"); got != "image/png" {
+		t.Fatalf("expected image/png content type, got %q", got)
+	}
+	if !bytes.Equal(contentRec.Body.Bytes(), image) {
+		t.Fatalf("expected image content bytes, got %v", contentRec.Body.Bytes())
+	}
+
+	rawReq := httptest.NewRequest(http.MethodGet, "/s/abcd/raw", nil)
+	rawRec := httptest.NewRecorder()
+	mgr.handleShare(rawRec, rawReq)
+	if rawRec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rawRec.Code)
+	}
+	if got := rawRec.Header().Get("Content-Disposition"); !strings.Contains(got, "clip-image.png") {
+		t.Fatalf("expected png download filename, got %q", got)
+	}
+}
+
 func mustParseTemplates() *template.Template {
 	return template.Must(template.New("pages").Parse(homeHTML + manageHTML + shareHTML))
 }
