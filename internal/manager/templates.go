@@ -682,6 +682,10 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       cursor: pointer;
     }
     button:hover { background: #a7552d; }
+    button:disabled {
+      cursor: wait;
+      opacity: 0.75;
+    }
     .readonly {
       margin: 0;
       padding: 14px;
@@ -690,6 +694,39 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       color: var(--muted);
       font-size: 14px;
       line-height: 1.5;
+    }
+    .upload-status {
+      display: grid;
+      gap: 10px;
+    }
+    .progress-shell {
+      overflow: hidden;
+      height: 12px;
+      border-radius: 999px;
+      background: rgba(11,110,79,0.12);
+    }
+    .progress-bar {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #0b6e4f, #c66b3d);
+      transition: width 0.2s ease;
+    }
+    .progress-meta {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .upload-status-text {
+      color: var(--text);
+      font-weight: 600;
+    }
+    .upload-error {
+      color: var(--danger);
+    }
+    .upload-ok {
+      color: var(--ok);
     }
     @media (max-width: 760px) {
       body { padding: 12px; }
@@ -797,13 +834,21 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       <div class="card">
         <h2>{{if .UploadEnabled}}上传入口{{else}}访问模式{{end}}</h2>
         {{if .UploadEnabled}}
-          <p class="hint">输入分享者设置的上传密码后，可把文件上传到当前共享目录根目录。</p>
+          <p class="hint">输入分享者设置的上传密码后，可把文件分片上传到当前目录。上传过程中会显示实时进度。</p>
           <div class="section-divider"></div>
-          <form action="/s/{{.ShareCode}}/upload" method="post" enctype="multipart/form-data">
+          <form id="upload-form">
             <input type="hidden" name="path" value="{{.CurrentPath}}">
             <input type="file" name="file" required>
             <input type="password" name="password" placeholder="上传密码" required>
-            <button type="submit">上传文件</button>
+            <button type="submit" id="upload-button">上传文件</button>
+            <div class="upload-status" id="upload-status" hidden>
+              <div class="progress-shell"><div class="progress-bar" id="upload-progress"></div></div>
+              <div class="progress-meta">
+                <div class="upload-status-text" id="upload-status-text">准备上传</div>
+                <div id="upload-progress-text">0%</div>
+                <div id="upload-detail-text"></div>
+              </div>
+            </div>
           </form>
         {{else}}
           <p class="readonly">
@@ -817,6 +862,135 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       </div>
     </section>
   </div>
+  {{if .UploadEnabled}}
+  <script>
+    (() => {
+      const form = document.getElementById("upload-form");
+      const fileInput = form?.querySelector('input[name="file"]');
+      const passwordInput = form?.querySelector('input[name="password"]');
+      const pathInput = form?.querySelector('input[name="path"]');
+      const button = document.getElementById("upload-button");
+      const statusBox = document.getElementById("upload-status");
+      const progressBar = document.getElementById("upload-progress");
+      const statusText = document.getElementById("upload-status-text");
+      const progressText = document.getElementById("upload-progress-text");
+      const detailText = document.getElementById("upload-detail-text");
+      const chunkSize = {{.ChunkSize}};
+      const shareCode = "{{.ShareCode}}";
+
+      if (!form || !fileInput || !passwordInput || !pathInput || !button || !statusBox || !progressBar || !statusText || !progressText || !detailText) {
+        return;
+      }
+
+      const formatBytes = (value) => {
+        if (value < 1024) return value + " B";
+        const units = ["KB", "MB", "GB", "TB"];
+        let size = value;
+        let unit = -1;
+        do {
+          size /= 1024;
+          unit += 1;
+        } while (size >= 1024 && unit < units.length - 1);
+        return size.toFixed(size >= 100 ? 0 : 1) + " " + units[unit];
+      };
+
+      const updateProgress = (uploadedBytes, totalBytes, nextIndex, totalChunks, stateClass, message) => {
+        const percent = totalBytes === 0 ? 0 : Math.min(100, (uploadedBytes / totalBytes) * 100);
+        statusBox.hidden = false;
+        progressBar.style.width = percent.toFixed(2) + "%";
+        progressText.textContent = percent.toFixed(percent >= 100 ? 0 : 1) + "%";
+        statusText.textContent = message;
+        statusText.className = "upload-status-text" + (stateClass ? " " + stateClass : "");
+        detailText.textContent = "已上传 " + formatBytes(uploadedBytes) + " / " + formatBytes(totalBytes) + "，分片 " + Math.min(nextIndex, totalChunks) + " / " + totalChunks;
+      };
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const file = fileInput.files?.[0];
+        const password = passwordInput.value;
+        const currentPath = pathInput.value;
+
+        if (!file) {
+          updateProgress(0, 0, 0, 0, "upload-error", "请选择要上传的文件");
+          return;
+        }
+        if (!password) {
+          updateProgress(0, 0, 0, 0, "upload-error", "请输入上传密码");
+          return;
+        }
+
+        const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
+        let uploadedBytes = 0;
+        let nextIndex = 0;
+        button.disabled = true;
+
+        try {
+          updateProgress(0, file.size, 0, totalChunks, "", "正在准备上传...");
+
+          const startResp = await fetch("/s/" + shareCode + "/upload/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              path: currentPath,
+              password,
+              fileName: file.name,
+              fileSize: file.size,
+              chunkSize,
+              totalChunks
+            })
+          });
+          if (!startResp.ok) {
+            throw new Error(await startResp.text() || "无法开始上传");
+          }
+
+          const startData = await startResp.json();
+          uploadedBytes = startData.uploadedBytes || 0;
+          nextIndex = startData.nextIndex || 0;
+
+          updateProgress(uploadedBytes, file.size, nextIndex, totalChunks, "", "正在上传分片...");
+
+          if (!startData.done) {
+            for (let index = nextIndex; index < totalChunks; index += 1) {
+              const start = index * chunkSize;
+              const end = Math.min(file.size, start + chunkSize);
+              const chunk = file.slice(start, end);
+
+              updateProgress(uploadedBytes, file.size, index, totalChunks, "", "正在上传分片 " + (index + 1) + " / " + totalChunks);
+
+              const chunkResp = await fetch("/s/" + shareCode + "/upload/chunk?upload_id=" + encodeURIComponent(startData.uploadId) + "&index=" + index, {
+                method: "POST",
+                headers: { "Content-Type": "application/octet-stream" },
+                body: chunk
+              });
+              if (!chunkResp.ok) {
+                throw new Error(await chunkResp.text() || "上传分片失败");
+              }
+
+              const chunkData = await chunkResp.json();
+              uploadedBytes = chunkData.uploadedBytes || end;
+              nextIndex = chunkData.nextIndex || (index + 1);
+              updateProgress(uploadedBytes, file.size, nextIndex, totalChunks, "", "正在等待服务端写入...");
+            }
+          }
+
+          updateProgress(file.size, file.size, totalChunks, totalChunks, "upload-ok", "上传完成");
+          setTimeout(() => {
+            const nextURL = new URL(window.location.href);
+            nextURL.searchParams.set("success", "上传成功");
+            nextURL.searchParams.delete("error");
+            window.location.href = nextURL.toString();
+          }, 500);
+        } catch (error) {
+          updateProgress(uploadedBytes, file.size, nextIndex, totalChunks, "upload-error", error instanceof Error ? error.message : "上传失败");
+          button.disabled = false;
+          return;
+        }
+
+        button.disabled = false;
+      });
+    })();
+  </script>
+  {{end}}
 </body>
 </html>{{end}}
 `

@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,8 +27,9 @@ import (
 )
 
 const (
-	defaultHost = "0.0.0.0"
-	defaultPort = 21910
+	defaultHost            = "0.0.0.0"
+	defaultPort            = 21910
+	defaultUploadChunkSize = 2 << 20
 )
 
 type Config struct {
@@ -40,8 +42,9 @@ type Manager struct {
 	server    *http.Server
 	templates *template.Template
 
-	mu     sync.RWMutex
-	shares map[string]*Share
+	mu      sync.RWMutex
+	shares  map[string]*Share
+	uploads map[string]*uploadSession
 }
 
 type Share struct {
@@ -115,6 +118,7 @@ type sharePageData struct {
 	Address        string
 	ErrorMessage   string
 	SuccessMessage string
+	ChunkSize      int64
 }
 
 type dirItem struct {
@@ -130,6 +134,39 @@ type breadcrumbItem struct {
 	URL  string
 }
 
+type uploadSession struct {
+	mu            sync.Mutex
+	ID            string
+	ShareID       string
+	RelativePath  string
+	FileName      string
+	TempPath      string
+	TargetPath    string
+	TotalSize     int64
+	ChunkSize     int64
+	TotalChunks   int
+	UploadedBytes int64
+	NextIndex     int
+}
+
+type uploadStartRequest struct {
+	Path        string `json:"path"`
+	Password    string `json:"password"`
+	FileName    string `json:"fileName"`
+	FileSize    int64  `json:"fileSize"`
+	ChunkSize   int64  `json:"chunkSize"`
+	TotalChunks int    `json:"totalChunks"`
+}
+
+type uploadStartResponse struct {
+	UploadID      string `json:"uploadId"`
+	UploadedBytes int64  `json:"uploadedBytes"`
+	NextIndex     int    `json:"nextIndex"`
+	ChunkSize     int64  `json:"chunkSize"`
+	TotalSize     int64  `json:"totalSize"`
+	Done          bool   `json:"done"`
+}
+
 func DefaultConfig() Config {
 	return Config{BindHost: defaultHost, Port: defaultPort}
 }
@@ -139,6 +176,7 @@ func Run(cfg Config) error {
 		cfg:       cfg,
 		templates: template.Must(template.New("pages").Parse(homeHTML + manageHTML + shareHTML)),
 		shares:    make(map[string]*Share),
+		uploads:   make(map[string]*uploadSession),
 	}
 
 	mux := http.NewServeMux()
@@ -363,8 +401,12 @@ func (m *Manager) handleShare(w http.ResponseWriter, r *http.Request) {
 		m.renderSharePage(w, r, share)
 	case len(parts) == 2 && parts[1] == "raw" && (r.Method == http.MethodGet || r.Method == http.MethodHead):
 		m.serveShareRaw(w, r, share)
-	case len(parts) == 2 && parts[1] == "upload" && r.Method == http.MethodPost:
-		m.handleShareUpload(w, r, share)
+	case len(parts) == 3 && parts[1] == "upload" && parts[2] == "start" && r.Method == http.MethodPost:
+		m.handleUploadStart(w, r, share)
+	case len(parts) == 3 && parts[1] == "upload" && parts[2] == "status" && r.Method == http.MethodGet:
+		m.handleUploadStatus(w, r, share)
+	case len(parts) == 3 && parts[1] == "upload" && parts[2] == "chunk" && r.Method == http.MethodPost:
+		m.handleUploadChunk(w, r, share)
 	default:
 		http.NotFound(w, r)
 	}
@@ -561,6 +603,7 @@ func (m *Manager) renderSharePage(w http.ResponseWriter, r *http.Request, share 
 		ErrorMessage:   r.URL.Query().Get("error"),
 		SuccessMessage: r.URL.Query().Get("success"),
 		Items:          listItems(share, currentPath, currentDir),
+		ChunkSize:      defaultUploadChunkSize,
 	}
 
 	if err := m.templates.ExecuteTemplate(w, "share", data); err != nil {
@@ -592,52 +635,251 @@ func (m *Manager) serveShareRaw(w http.ResponseWriter, r *http.Request, share *S
 	serveFileDownload(w, r, share.Path, filepath.Base(share.Path))
 }
 
-func (m *Manager) handleShareUpload(w http.ResponseWriter, r *http.Request, share *Share) {
+func (m *Manager) handleUploadStart(w http.ResponseWriter, r *http.Request, share *Share) {
 	if !share.IsDir {
 		http.Error(w, "uploads are only supported for directories", http.StatusBadRequest)
 		return
 	}
-	currentPath := strings.TrimSpace(r.FormValue("path"))
 	if share.Password == "" {
 		http.Error(w, "uploads are disabled for this share", http.StatusForbidden)
 		return
 	}
-	if subtle.ConstantTimeCompare([]byte(r.FormValue("password")), []byte(share.Password)) != 1 {
-		http.Redirect(w, r, withShareMessageAt(share.Code, currentPath, "error", "密码错误，上传已拒绝"), http.StatusSeeOther)
+	var req uploadStartRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if err := r.ParseMultipartForm(64 << 20); err != nil {
-		http.Redirect(w, r, withShareMessageAt(share.Code, currentPath, "error", "无法解析上传请求"), http.StatusSeeOther)
+	if subtle.ConstantTimeCompare([]byte(req.Password), []byte(share.Password)) != 1 {
+		http.Error(w, "invalid upload password", http.StatusForbidden)
 		return
 	}
 
-	file, header, err := r.FormFile("file")
+	session, err := m.prepareUploadSession(share, req)
 	if err != nil {
-		http.Redirect(w, r, withShareMessageAt(share.Code, currentPath, "error", "请选择要上传的文件"), http.StatusSeeOther)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	defer file.Close()
 
-	name := filepath.Base(header.Filename)
+	m.writeJSON(w, http.StatusOK, uploadStartResponse{
+		UploadID:      session.ID,
+		UploadedBytes: session.UploadedBytes,
+		NextIndex:     session.NextIndex,
+		ChunkSize:     session.ChunkSize,
+		TotalSize:     session.TotalSize,
+		Done:          session.UploadedBytes == session.TotalSize,
+	})
+}
+
+func (m *Manager) handleUploadStatus(w http.ResponseWriter, r *http.Request, share *Share) {
+	session, err := m.lookupUploadSession(share, r.URL.Query().Get("upload_id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	session.mu.Lock()
+	resp := uploadStartResponse{
+		UploadID:      session.ID,
+		UploadedBytes: session.UploadedBytes,
+		NextIndex:     session.NextIndex,
+		ChunkSize:     session.ChunkSize,
+		TotalSize:     session.TotalSize,
+		Done:          session.UploadedBytes == session.TotalSize,
+	}
+	session.mu.Unlock()
+
+	m.writeJSON(w, http.StatusOK, resp)
+}
+
+func (m *Manager) handleUploadChunk(w http.ResponseWriter, r *http.Request, share *Share) {
+	session, err := m.lookupUploadSession(share, r.URL.Query().Get("upload_id"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	index, err := strconv.Atoi(r.URL.Query().Get("index"))
+	if err != nil || index < 0 {
+		http.Error(w, "invalid chunk index", http.StatusBadRequest)
+		return
+	}
+
+	uploadedBytes, done, err := m.appendUploadChunk(session, index, r.Body, r.ContentLength)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if done {
+		m.touchShare(share.ID)
+	}
+
+	m.writeJSON(w, http.StatusOK, map[string]any{
+		"uploadId":      session.ID,
+		"uploadedBytes": uploadedBytes,
+		"nextIndex":     index + 1,
+		"done":          done,
+	})
+}
+
+func (m *Manager) prepareUploadSession(share *Share, req uploadStartRequest) (*uploadSession, error) {
+	currentPath, currentDir, err := resolveShareSubpath(share.Path, strings.TrimSpace(req.Path), true)
+	if err != nil {
+		return nil, errors.New("目录路径无效")
+	}
+
+	name := filepath.Base(strings.TrimSpace(req.FileName))
 	if name == "." || name == "" {
-		http.Redirect(w, r, withShareMessageAt(share.Code, currentPath, "error", "无效文件名"), http.StatusSeeOther)
-		return
+		return nil, errors.New("无效文件名")
+	}
+	if req.FileSize <= 0 {
+		return nil, errors.New("无效文件大小")
+	}
+	if req.ChunkSize <= 0 {
+		return nil, errors.New("无效分片大小")
+	}
+	if req.TotalChunks <= 0 {
+		return nil, errors.New("无效分片数量")
 	}
 
-	currentPath, currentDir, err := resolveShareSubpath(share.Path, currentPath, true)
-	if err != nil {
-		http.Redirect(w, r, withShareMessageAt(share.Code, currentPath, "error", "目录路径无效"), http.StatusSeeOther)
-		return
+	expectedChunks := int((req.FileSize + req.ChunkSize - 1) / req.ChunkSize)
+	if expectedChunks != req.TotalChunks {
+		return nil, errors.New("分片数量与文件大小不匹配")
 	}
 
 	target := filepath.Join(currentDir, name)
-	if err := writeUploadedFile(target, file); err != nil {
-		http.Redirect(w, r, withShareMessageAt(share.Code, currentPath, "error", "保存上传文件失败："+err.Error()), http.StatusSeeOther)
-		return
+	if _, err := os.Stat(target); err == nil {
+		return nil, errors.New("目标文件已存在")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("检查目标文件失败: %w", err)
 	}
 
-	m.touchShare(share.ID)
-	http.Redirect(w, r, withShareMessageAt(share.Code, currentPath, "success", "上传成功"), http.StatusSeeOther)
+	key := uploadSessionKey(share.ID, currentPath, name)
+
+	m.mu.Lock()
+	if existing, ok := m.uploads[key]; ok {
+		m.mu.Unlock()
+		existing.mu.Lock()
+		defer existing.mu.Unlock()
+		if existing.TotalSize != req.FileSize || existing.ChunkSize != req.ChunkSize || existing.TotalChunks != req.TotalChunks {
+			return nil, errors.New("同名文件已有不同上传任务进行中")
+		}
+		return existing, nil
+	}
+
+	session := &uploadSession{
+		ID:           newUploadID(),
+		ShareID:      share.ID,
+		RelativePath: currentPath,
+		FileName:     name,
+		TempPath:     target + ".webshare.part",
+		TargetPath:   target,
+		TotalSize:    req.FileSize,
+		ChunkSize:    req.ChunkSize,
+		TotalChunks:  req.TotalChunks,
+	}
+
+	if info, err := os.Stat(session.TempPath); err == nil {
+		if info.Size() > session.TotalSize {
+			m.mu.Unlock()
+			return nil, errors.New("上传临时文件状态无效")
+		}
+		if info.Size() < session.TotalSize && info.Size()%session.ChunkSize != 0 {
+			m.mu.Unlock()
+			return nil, errors.New("上传临时文件未对齐到分片边界")
+		}
+		session.UploadedBytes = info.Size()
+		session.NextIndex = int(info.Size() / session.ChunkSize)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("检查上传临时文件失败: %w", err)
+	}
+
+	m.uploads[key] = session
+	m.mu.Unlock()
+	return session, nil
+}
+
+func (m *Manager) lookupUploadSession(share *Share, uploadID string) (*uploadSession, error) {
+	uploadID = strings.TrimSpace(uploadID)
+	if uploadID == "" {
+		return nil, errors.New("missing upload id")
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, session := range m.uploads {
+		if session.ID == uploadID && session.ShareID == share.ID {
+			return session, nil
+		}
+	}
+	return nil, errors.New("upload session not found")
+}
+
+func (m *Manager) appendUploadChunk(session *uploadSession, index int, src io.Reader, contentLength int64) (int64, bool, error) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
+	if session.UploadedBytes == session.TotalSize {
+		return session.UploadedBytes, true, nil
+	}
+	if index != session.NextIndex {
+		return session.UploadedBytes, false, fmt.Errorf("unexpected chunk index: want %d", session.NextIndex)
+	}
+
+	expectedSize := session.ChunkSize
+	remaining := session.TotalSize - session.UploadedBytes
+	if remaining < expectedSize {
+		expectedSize = remaining
+	}
+	if contentLength != expectedSize {
+		return session.UploadedBytes, false, fmt.Errorf("unexpected chunk size: want %d bytes", expectedSize)
+	}
+
+	dst, err := os.OpenFile(session.TempPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return session.UploadedBytes, false, fmt.Errorf("open upload target: %w", err)
+	}
+	defer dst.Close()
+
+	written, err := io.Copy(dst, io.LimitReader(src, expectedSize))
+	if err != nil {
+		return session.UploadedBytes, false, fmt.Errorf("write upload chunk: %w", err)
+	}
+	if written != expectedSize {
+		return session.UploadedBytes, false, fmt.Errorf("short chunk write: wrote %d bytes", written)
+	}
+
+	session.UploadedBytes += written
+	session.NextIndex++
+
+	if session.UploadedBytes < session.TotalSize {
+		return session.UploadedBytes, false, nil
+	}
+
+	if err := dst.Close(); err != nil {
+		return session.UploadedBytes, false, fmt.Errorf("close upload target: %w", err)
+	}
+	if err := os.Rename(session.TempPath, session.TargetPath); err != nil {
+		return session.UploadedBytes, false, fmt.Errorf("finalize upload: %w", err)
+	}
+
+	m.mu.Lock()
+	delete(m.uploads, uploadSessionKey(session.ShareID, session.RelativePath, session.FileName))
+	m.mu.Unlock()
+
+	return session.UploadedBytes, true, nil
+}
+
+func (m *Manager) writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func uploadSessionKey(shareID, relativePath, fileName string) string {
+	return shareID + "|" + relativePath + "|" + strings.ToLower(fileName)
 }
 
 func (m *Manager) touchShare(id string) {
@@ -961,6 +1203,10 @@ func newShareID() string {
 		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(raw[:])
+}
+
+func newUploadID() string {
+	return newShareID()
 }
 
 func newShareCode() string {
