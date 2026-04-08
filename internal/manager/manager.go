@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -122,11 +123,12 @@ type sharePageData struct {
 }
 
 type dirItem struct {
-	Name    string
-	Size    string
-	ModTime string
-	URL     string
-	IsDir   bool
+	Name       string
+	Size       string
+	ModTime    string
+	URL        string
+	ArchiveURL string
+	IsDir      bool
 }
 
 type breadcrumbItem struct {
@@ -401,6 +403,8 @@ func (m *Manager) handleShare(w http.ResponseWriter, r *http.Request) {
 		m.renderSharePage(w, r, share)
 	case len(parts) == 2 && parts[1] == "raw" && (r.Method == http.MethodGet || r.Method == http.MethodHead):
 		m.serveShareRaw(w, r, share)
+	case len(parts) == 2 && parts[1] == "archive" && r.Method == http.MethodGet:
+		m.serveShareArchive(w, r, share)
 	case len(parts) == 3 && parts[1] == "upload" && parts[2] == "start" && r.Method == http.MethodPost:
 		m.handleUploadStart(w, r, share)
 	case len(parts) == 3 && parts[1] == "upload" && parts[2] == "status" && r.Method == http.MethodGet:
@@ -633,6 +637,45 @@ func (m *Manager) serveShareRaw(w http.ResponseWriter, r *http.Request, share *S
 	}
 
 	serveFileDownload(w, r, share.Path, filepath.Base(share.Path))
+}
+
+func (m *Manager) serveShareArchive(w http.ResponseWriter, r *http.Request, share *Share) {
+	if !share.IsDir {
+		http.Error(w, "only directory shares can be archived", http.StatusBadRequest)
+		return
+	}
+
+	relativePath, target, err := resolveShareSubpath(share.Path, r.URL.Query().Get("path"), true)
+	if err != nil {
+		http.Error(w, "invalid archive path", http.StatusBadRequest)
+		return
+	}
+
+	info, err := os.Stat(target)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !info.IsDir() {
+		http.Error(w, "archive target is not a directory", http.StatusBadRequest)
+		return
+	}
+
+	archiveBase := share.Name
+	if relativePath != "" {
+		archiveBase = filepath.Base(filepath.FromSlash(relativePath))
+	}
+	archiveName := sanitizeArchiveName(archiveBase) + ".zip"
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, archiveName))
+
+	zipWriter := zip.NewWriter(w)
+	defer zipWriter.Close()
+
+	if err := writeZipArchive(zipWriter, target, archiveBase); err != nil {
+		http.Error(w, "failed to create archive: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func (m *Manager) handleUploadStart(w http.ResponseWriter, r *http.Request, share *Share) {
@@ -991,6 +1034,7 @@ func listItems(share *Share, currentPath, currentDir string) []dirItem {
 		if entry.IsDir() {
 			item.Size = "folder"
 			item.URL = browseURL(share.Code, joinRelativePath(currentPath, entry.Name()))
+			item.ArchiveURL = archiveURL(share.Code, joinRelativePath(currentPath, entry.Name()))
 		} else {
 			item.Size = formatSize(entryInfo.Size())
 			item.URL = fmt.Sprintf("/s/%s/raw?path=%s", share.Code, url.QueryEscape(joinRelativePath(currentPath, entry.Name())))
@@ -1027,6 +1071,77 @@ func serveFileDownload(w http.ResponseWriter, r *http.Request, path, downloadNam
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, downloadName))
 	http.ServeContent(w, r, downloadName, info.ModTime(), file)
+}
+
+func writeZipArchive(zipWriter *zip.Writer, root, rootName string) error {
+	rootName = sanitizeArchiveName(rootName)
+
+	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == root {
+			return nil
+		}
+
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		entryName := filepath.ToSlash(filepath.Join(rootName, rel))
+
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		header.Name = entryName
+		if info.IsDir() {
+			header.Name += "/"
+			_, err = zipWriter.CreateHeader(header)
+			return err
+		}
+
+		header.Method = zip.Deflate
+		writer, err := zipWriter.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		_, err = io.Copy(writer, file)
+		return err
+	})
+}
+
+func sanitizeArchiveName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "share"
+	}
+
+	replacer := strings.NewReplacer(
+		"\\", "_",
+		"/", "_",
+		":", "_",
+		"*", "_",
+		"?", "_",
+		`"`, "_",
+		"<", "_",
+		">", "_",
+		"|", "_",
+	)
+	name = replacer.Replace(name)
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "share"
+	}
+	return name
 }
 
 func writeUploadedFile(target string, src io.Reader) error {
@@ -1074,6 +1189,14 @@ func withShareMessageAt(shareCode, currentPath, key, value string) string {
 
 func browseURL(shareCode, currentPath string) string {
 	base := "/s/" + shareCode
+	if currentPath == "" {
+		return base
+	}
+	return base + "?path=" + url.QueryEscape(currentPath)
+}
+
+func archiveURL(shareCode, currentPath string) string {
+	base := "/s/" + shareCode + "/archive"
 	if currentPath == "" {
 		return base
 	}

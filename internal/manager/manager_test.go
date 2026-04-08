@@ -1,9 +1,11 @@
 package manager
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/json"
 	"html/template"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -257,6 +259,146 @@ func TestSequentialChunkUploadCreatesNestedFolders(t *testing.T) {
 	}
 	if string(content) != "hello" {
 		t.Fatalf("expected nested uploaded content %q, got %q", "hello", string(content))
+	}
+}
+
+func TestServeShareArchiveDownloadsRootAsZip(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, "docs", "nested"), 0o755); err != nil {
+		t.Fatalf("mkdir tree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "readme.txt"), []byte("root"), 0o644); err != nil {
+		t.Fatalf("write root file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "docs", "nested", "note.txt"), []byte("nested"), 0o644); err != nil {
+		t.Fatalf("write nested file: %v", err)
+	}
+
+	mgr := &Manager{
+		cfg:       DefaultConfig(),
+		templates: mustParseTemplates(),
+		shares: map[string]*Share{
+			"share-1": {
+				ID:    "share-1",
+				Code:  "abcd",
+				Path:  tmpDir,
+				Name:  "My Share",
+				IsDir: true,
+			},
+		},
+		uploads: make(map[string]*uploadSession),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/s/abcd/archive", nil)
+	rec := httptest.NewRecorder()
+	mgr.handleShare(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/zip" {
+		t.Fatalf("expected application/zip, got %q", got)
+	}
+
+	readerAt := bytes.NewReader(rec.Body.Bytes())
+	zr, err := zip.NewReader(readerAt, int64(readerAt.Len()))
+	if err != nil {
+		t.Fatalf("open zip: %v", err)
+	}
+
+	entries := map[string]string{}
+	for _, file := range zr.File {
+		if file.FileInfo().IsDir() {
+			entries[file.Name] = ""
+			continue
+		}
+		rc, err := file.Open()
+		if err != nil {
+			t.Fatalf("open zip entry %s: %v", file.Name, err)
+		}
+		body, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			t.Fatalf("read zip entry %s: %v", file.Name, err)
+		}
+		entries[file.Name] = string(body)
+	}
+
+	if got := entries["My Share/readme.txt"]; got != "root" {
+		t.Fatalf("expected root file in archive, got %q", got)
+	}
+	if got := entries["My Share/docs/nested/note.txt"]; got != "nested" {
+		t.Fatalf("expected nested file in archive, got %q", got)
+	}
+}
+
+func TestServeShareArchiveDownloadsSubfolderAsZip(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, "docs", "nested"), 0o755); err != nil {
+		t.Fatalf("mkdir tree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "readme.txt"), []byte("root"), 0o644); err != nil {
+		t.Fatalf("write root file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "docs", "nested", "note.txt"), []byte("nested"), 0o644); err != nil {
+		t.Fatalf("write nested file: %v", err)
+	}
+
+	mgr := &Manager{
+		cfg:       DefaultConfig(),
+		templates: mustParseTemplates(),
+		shares: map[string]*Share{
+			"share-1": {
+				ID:    "share-1",
+				Code:  "abcd",
+				Path:  tmpDir,
+				Name:  "My Share",
+				IsDir: true,
+			},
+		},
+		uploads: make(map[string]*uploadSession),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/s/abcd/archive?path=docs", nil)
+	rec := httptest.NewRecorder()
+	mgr.handleShare(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Disposition"); !strings.Contains(got, `filename="docs.zip"`) {
+		t.Fatalf("expected docs.zip content disposition, got %q", got)
+	}
+
+	readerAt := bytes.NewReader(rec.Body.Bytes())
+	zr, err := zip.NewReader(readerAt, int64(readerAt.Len()))
+	if err != nil {
+		t.Fatalf("open zip: %v", err)
+	}
+
+	entries := map[string]string{}
+	for _, file := range zr.File {
+		if file.FileInfo().IsDir() {
+			entries[file.Name] = ""
+			continue
+		}
+		rc, err := file.Open()
+		if err != nil {
+			t.Fatalf("open zip entry %s: %v", file.Name, err)
+		}
+		body, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			t.Fatalf("read zip entry %s: %v", file.Name, err)
+		}
+		entries[file.Name] = string(body)
+	}
+
+	if _, ok := entries["docs/readme.txt"]; ok {
+		t.Fatal("root file should not be included in subfolder archive")
+	}
+	if got := entries["docs/nested/note.txt"]; got != "nested" {
+		t.Fatalf("expected nested file in docs archive, got %q", got)
 	}
 }
 

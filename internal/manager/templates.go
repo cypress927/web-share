@@ -659,6 +659,19 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       font-weight: 600;
     }
     .download:hover { text-decoration: none; background: var(--accent-strong); }
+    .item-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .inline-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--accent-strong);
+      font-weight: 600;
+    }
     form {
       display: grid;
       gap: 12px;
@@ -820,12 +833,17 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
         {{if .ErrorMessage}}<div class="status error">{{.ErrorMessage}}</div>{{end}}
         {{if .SuccessMessage}}<div class="status ok">{{.SuccessMessage}}</div>{{end}}
         {{if .IsDir}}
+          <div class="upload-actions">
+            <a class="download" href="/s/{{.ShareCode}}/archive">下载整个分享内容</a>
+          </div>
+          <div class="section-divider"></div>
           <table>
             <thead>
               <tr>
                 <th>名称</th>
                 <th>大小</th>
                 <th>修改时间</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -834,9 +852,19 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
                 <td>{{if .URL}}<a {{if .IsDir}}class="folder-link"{{end}} href="{{.URL}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td>
                 <td>{{.Size}}</td>
                 <td>{{.ModTime}}</td>
+                <td>
+                  {{if .IsDir}}
+                    <div class="item-actions">
+                      <a class="inline-link" href="{{.URL}}">进入</a>
+                      <a class="inline-link" href="{{.ArchiveURL}}">打包下载</a>
+                    </div>
+                  {{else}}
+                    <a class="inline-link" href="{{.URL}}">下载</a>
+                  {{end}}
+                </td>
               </tr>
               {{else}}
-              <tr><td colspan="3">目录为空</td></tr>
+              <tr><td colspan="4">目录为空</td></tr>
               {{end}}
             </tbody>
           </table>
