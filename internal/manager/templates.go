@@ -553,6 +553,44 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       font-size: 13px;
       font-weight: 700;
     }
+    .crumbs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .crumb-sep {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .path-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .path-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(11,110,79,0.1);
+      color: var(--accent-strong);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(109,97,84,0.1);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+    }
     .content {
       padding: 24px 28px 32px;
       display: grid;
@@ -596,6 +634,9 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
     th { color: var(--muted); font-weight: 600; }
     td:first-child {
       word-break: break-word;
+    }
+    .folder-link {
+      font-weight: 700;
     }
     .section-divider {
       height: 1px;
@@ -706,6 +747,18 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       <h1>{{.SharedName}}</h1>
       <div class="hero-stack">
         <div class="code-chip">分享码 {{.ShareCode}}</div>
+        {{if .IsDir}}
+        <div class="crumbs">
+          {{range $index, $crumb := .Breadcrumbs}}
+            {{if $index}}<span class="crumb-sep">/</span>{{end}}
+            <a href="{{$crumb.URL}}">{{$crumb.Name}}</a>
+          {{end}}
+        </div>
+        <div class="path-row">
+          <span class="path-chip">当前目录 {{.CurrentLabel}}</span>
+          {{if .ParentURL}}<a class="back-link" href="{{.ParentURL}}">返回上一级</a>{{end}}
+        </div>
+        {{end}}
         <div class="meta">路径: {{.SharedPath}}</div>
         <a class="hero-link" href="{{.Address}}">{{.Address}}</a>
       </div>
@@ -728,7 +781,7 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
             <tbody>
               {{range .Items}}
               <tr>
-                <td>{{if .URL}}<a href="{{.URL}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td>
+                <td>{{if .URL}}<a {{if .IsDir}}class="folder-link"{{end}} href="{{.URL}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td>
                 <td>{{.Size}}</td>
                 <td>{{.ModTime}}</td>
               </tr>
@@ -747,6 +800,7 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
           <p class="hint">输入分享者设置的上传密码后，可把文件上传到当前共享目录根目录。</p>
           <div class="section-divider"></div>
           <form action="/s/{{.ShareCode}}/upload" method="post" enctype="multipart/form-data">
+            <input type="hidden" name="path" value="{{.CurrentPath}}">
             <input type="file" name="file" required>
             <input type="password" name="password" placeholder="上传密码" required>
             <button type="submit">上传文件</button>

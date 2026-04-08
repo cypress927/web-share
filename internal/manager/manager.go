@@ -105,6 +105,10 @@ type sharePageData struct {
 	ShareCode      string
 	SharedName     string
 	SharedPath     string
+	CurrentPath    string
+	CurrentLabel   string
+	ParentURL      string
+	Breadcrumbs    []breadcrumbItem
 	IsDir          bool
 	UploadEnabled  bool
 	Items          []dirItem
@@ -118,6 +122,12 @@ type dirItem struct {
 	Size    string
 	ModTime string
 	URL     string
+	IsDir   bool
+}
+
+type breadcrumbItem struct {
+	Name string
+	URL  string
 }
 
 func DefaultConfig() Config {
@@ -520,17 +530,37 @@ func (m *Manager) listManageCards() []manageShareCard {
 }
 
 func (m *Manager) renderSharePage(w http.ResponseWriter, r *http.Request, share *Share) {
+	currentPath, currentDir, err := resolveShareSubpath(share.Path, r.URL.Query().Get("path"), true)
+	if err != nil {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	info, err := os.Stat(currentDir)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !info.IsDir() {
+		http.Error(w, "path is not a directory", http.StatusBadRequest)
+		return
+	}
+
 	data := sharePageData{
 		Title:          "Web Share",
 		ShareCode:      share.Code,
 		SharedName:     share.Name,
 		SharedPath:     share.Path,
+		CurrentPath:    currentPath,
+		CurrentLabel:   currentPathLabel(currentPath),
+		ParentURL:      parentBrowseURL(share.Code, currentPath),
+		Breadcrumbs:    buildBreadcrumbs(share.Code, currentPath),
 		IsDir:          share.IsDir,
 		UploadEnabled:  share.IsDir && share.Password != "",
-		Address:        fmt.Sprintf("http://%s/s/%s", r.Host, share.Code),
+		Address:        fmt.Sprintf("http://%s%s", r.Host, browseURL(share.Code, currentPath)),
 		ErrorMessage:   r.URL.Query().Get("error"),
 		SuccessMessage: r.URL.Query().Get("success"),
-		Items:          listItems(share),
+		Items:          listItems(share, currentPath, currentDir),
 	}
 
 	if err := m.templates.ExecuteTemplate(w, "share", data); err != nil {
@@ -540,13 +570,11 @@ func (m *Manager) renderSharePage(w http.ResponseWriter, r *http.Request, share 
 
 func (m *Manager) serveShareRaw(w http.ResponseWriter, r *http.Request, share *Share) {
 	if share.IsDir {
-		name := filepath.Base(filepath.Clean(r.URL.Query().Get("name")))
-		if name == "." || name == "" {
-			http.Error(w, "missing file name", http.StatusBadRequest)
+		_, target, err := resolveShareSubpath(share.Path, r.URL.Query().Get("path"), false)
+		if err != nil {
+			http.Error(w, "invalid file path", http.StatusBadRequest)
 			return
 		}
-
-		target := filepath.Join(share.Path, name)
 		info, err := os.Stat(target)
 		if err != nil {
 			http.NotFound(w, r)
@@ -569,40 +597,47 @@ func (m *Manager) handleShareUpload(w http.ResponseWriter, r *http.Request, shar
 		http.Error(w, "uploads are only supported for directories", http.StatusBadRequest)
 		return
 	}
+	currentPath := strings.TrimSpace(r.FormValue("path"))
 	if share.Password == "" {
 		http.Error(w, "uploads are disabled for this share", http.StatusForbidden)
 		return
 	}
 	if subtle.ConstantTimeCompare([]byte(r.FormValue("password")), []byte(share.Password)) != 1 {
-		http.Redirect(w, r, withShareMessage(share.Code, "error", "密码错误，上传已拒绝"), http.StatusSeeOther)
+		http.Redirect(w, r, withShareMessageAt(share.Code, currentPath, "error", "密码错误，上传已拒绝"), http.StatusSeeOther)
 		return
 	}
 	if err := r.ParseMultipartForm(64 << 20); err != nil {
-		http.Redirect(w, r, withShareMessage(share.Code, "error", "无法解析上传请求"), http.StatusSeeOther)
+		http.Redirect(w, r, withShareMessageAt(share.Code, currentPath, "error", "无法解析上传请求"), http.StatusSeeOther)
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		http.Redirect(w, r, withShareMessage(share.Code, "error", "请选择要上传的文件"), http.StatusSeeOther)
+		http.Redirect(w, r, withShareMessageAt(share.Code, currentPath, "error", "请选择要上传的文件"), http.StatusSeeOther)
 		return
 	}
 	defer file.Close()
 
 	name := filepath.Base(header.Filename)
 	if name == "." || name == "" {
-		http.Redirect(w, r, withShareMessage(share.Code, "error", "无效文件名"), http.StatusSeeOther)
+		http.Redirect(w, r, withShareMessageAt(share.Code, currentPath, "error", "无效文件名"), http.StatusSeeOther)
 		return
 	}
 
-	target := filepath.Join(share.Path, name)
+	currentPath, currentDir, err := resolveShareSubpath(share.Path, currentPath, true)
+	if err != nil {
+		http.Redirect(w, r, withShareMessageAt(share.Code, currentPath, "error", "目录路径无效"), http.StatusSeeOther)
+		return
+	}
+
+	target := filepath.Join(currentDir, name)
 	if err := writeUploadedFile(target, file); err != nil {
-		http.Redirect(w, r, withShareMessage(share.Code, "error", "保存上传文件失败："+err.Error()), http.StatusSeeOther)
+		http.Redirect(w, r, withShareMessageAt(share.Code, currentPath, "error", "保存上传文件失败："+err.Error()), http.StatusSeeOther)
 		return
 	}
 
 	m.touchShare(share.ID)
-	http.Redirect(w, r, withShareMessage(share.Code, "success", "上传成功"), http.StatusSeeOther)
+	http.Redirect(w, r, withShareMessageAt(share.Code, currentPath, "success", "上传成功"), http.StatusSeeOther)
 }
 
 func (m *Manager) touchShare(id string) {
@@ -658,7 +693,7 @@ func (m *Manager) codeExists(code string) bool {
 	return false
 }
 
-func listItems(share *Share) []dirItem {
+func listItems(share *Share, currentPath, currentDir string) []dirItem {
 	info, err := os.Stat(share.Path)
 	if err != nil {
 		return nil
@@ -670,10 +705,11 @@ func listItems(share *Share) []dirItem {
 			Size:    formatSize(info.Size()),
 			ModTime: info.ModTime().Format("2006-01-02 15:04"),
 			URL:     fmt.Sprintf("/s/%s/raw", share.Code),
+			IsDir:   false,
 		}}
 	}
 
-	entries, err := os.ReadDir(share.Path)
+	entries, err := os.ReadDir(currentDir)
 	if err != nil {
 		return nil
 	}
@@ -688,12 +724,14 @@ func listItems(share *Share) []dirItem {
 		item := dirItem{
 			Name:    entry.Name(),
 			ModTime: entryInfo.ModTime().Format("2006-01-02 15:04"),
+			IsDir:   entry.IsDir(),
 		}
 		if entry.IsDir() {
 			item.Size = "folder"
+			item.URL = browseURL(share.Code, joinRelativePath(currentPath, entry.Name()))
 		} else {
 			item.Size = formatSize(entryInfo.Size())
-			item.URL = fmt.Sprintf("/s/%s/raw?name=%s", share.Code, url.QueryEscape(entry.Name()))
+			item.URL = fmt.Sprintf("/s/%s/raw?path=%s", share.Code, url.QueryEscape(joinRelativePath(currentPath, entry.Name())))
 		}
 		items = append(items, item)
 	}
@@ -754,6 +792,104 @@ func formatSize(size int64) string {
 
 func withShareMessage(shareCode, key, value string) string {
 	return fmt.Sprintf("/s/%s?%s=%s", shareCode, key, url.QueryEscape(value))
+}
+
+func withShareMessageAt(shareCode, currentPath, key, value string) string {
+	base := browseURL(shareCode, currentPath)
+	separator := "?"
+	if strings.Contains(base, "?") {
+		separator = "&"
+	}
+	return base + separator + key + "=" + url.QueryEscape(value)
+}
+
+func browseURL(shareCode, currentPath string) string {
+	base := "/s/" + shareCode
+	if currentPath == "" {
+		return base
+	}
+	return base + "?path=" + url.QueryEscape(currentPath)
+}
+
+func parentBrowseURL(shareCode, currentPath string) string {
+	if currentPath == "" {
+		return ""
+	}
+
+	parent := filepath.ToSlash(filepath.Dir(filepath.FromSlash(currentPath)))
+	if parent == "." {
+		parent = ""
+	}
+	return browseURL(shareCode, parent)
+}
+
+func buildBreadcrumbs(shareCode, currentPath string) []breadcrumbItem {
+	items := []breadcrumbItem{{
+		Name: "根目录",
+		URL:  browseURL(shareCode, ""),
+	}}
+	if currentPath == "" {
+		return items
+	}
+
+	parts := strings.Split(currentPath, "/")
+	current := ""
+	for _, part := range parts {
+		current = joinRelativePath(current, part)
+		items = append(items, breadcrumbItem{
+			Name: part,
+			URL:  browseURL(shareCode, current),
+		})
+	}
+	return items
+}
+
+func currentPathLabel(currentPath string) string {
+	if currentPath == "" {
+		return "根目录"
+	}
+	return currentPath
+}
+
+func joinRelativePath(base, name string) string {
+	if base == "" {
+		return filepath.ToSlash(name)
+	}
+	return filepath.ToSlash(filepath.Join(filepath.FromSlash(base), name))
+}
+
+func resolveShareSubpath(root, requested string, allowDir bool) (string, string, error) {
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		return "", root, nil
+	}
+
+	clean := filepath.Clean(filepath.FromSlash(requested))
+	if clean == "." {
+		return "", root, nil
+	}
+	if filepath.IsAbs(clean) || filepath.VolumeName(clean) != "" {
+		return "", "", errors.New("absolute path not allowed")
+	}
+
+	target := filepath.Clean(filepath.Join(root, clean))
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return "", "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", "", errors.New("path escapes root")
+	}
+
+	normalized := filepath.ToSlash(rel)
+	if normalized == "." {
+		normalized = ""
+	}
+
+	if !allowDir {
+		return normalized, target, nil
+	}
+	return normalized, target, nil
 }
 
 func isLocalRequest(remoteAddr string) bool {
