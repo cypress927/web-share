@@ -600,6 +600,81 @@ func TestCreateClipboardTextShare(t *testing.T) {
 	}
 }
 
+func TestListVisibleSharesIncludesClipboardTextPreview(t *testing.T) {
+	mgr := &Manager{
+		cfg:       DefaultConfig(),
+		templates: mustParseTemplates(),
+		shares: map[string]*Share{
+			"share-1": {
+				ID:          "share-1",
+				Code:        "abcd",
+				Kind:        shareKindClipboardText,
+				Name:        "text",
+				Visible:     true,
+				TextContent: "第一行\n第二行",
+			},
+		},
+		uploads: make(map[string]*uploadSession),
+	}
+
+	cards := mgr.listVisibleShares()
+	if len(cards) != 1 {
+		t.Fatalf("expected 1 card, got %d", len(cards))
+	}
+	card := cards[0]
+	if !card.ShowCopy {
+		t.Fatal("expected clipboard text card to show copy button")
+	}
+	if !card.ShowDownload {
+		t.Fatal("expected clipboard text card to show download button")
+	}
+	if card.DownloadURL != "/s/abcd/raw" {
+		t.Fatalf("unexpected download url: %q", card.DownloadURL)
+	}
+	if !strings.Contains(card.PreviewText, "第一行") {
+		t.Fatalf("unexpected preview text: %q", card.PreviewText)
+	}
+}
+
+func TestListVisibleSharesIncludesFileQuickDownloadInfo(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "hello.txt")
+	if err := os.WriteFile(filePath, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+
+	mgr := &Manager{
+		cfg:       DefaultConfig(),
+		templates: mustParseTemplates(),
+		shares: map[string]*Share{
+			"share-1": {
+				ID:      "share-1",
+				Code:    "abcd",
+				Kind:    shareKindFile,
+				Name:    "hello share",
+				Path:    filePath,
+				Visible: true,
+			},
+		},
+		uploads: make(map[string]*uploadSession),
+	}
+
+	cards := mgr.listVisibleShares()
+	if len(cards) != 1 {
+		t.Fatalf("expected 1 card, got %d", len(cards))
+	}
+	card := cards[0]
+	if !card.ShowDownload {
+		t.Fatal("expected file card to show quick download")
+	}
+	if card.FileName != "hello.txt" {
+		t.Fatalf("unexpected file name: %q", card.FileName)
+	}
+	if card.FileSize == "" {
+		t.Fatal("expected file size to be filled")
+	}
+}
+
 func TestClipboardImageShareContentAndRaw(t *testing.T) {
 	image := []byte{0x89, 0x50, 0x4E, 0x47}
 	mgr := &Manager{

@@ -107,9 +107,9 @@ const homeHTML = `{{define "home"}}<!DOCTYPE html>
       margin-top: 14px;
     }
     .share-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: start;
       gap: 12px;
       padding: 14px;
       border-radius: 18px;
@@ -134,6 +134,7 @@ const homeHTML = `{{define "home"}}<!DOCTYPE html>
       align-items: center;
       gap: 6px;
       padding: 8px 12px;
+      align-self: start;
       border-radius: 999px;
       background: rgba(191,103,56,0.12);
       color: var(--warm);
@@ -161,6 +162,55 @@ const homeHTML = `{{define "home"}}<!DOCTYPE html>
       margin-top: 8px;
       align-items: center;
     }
+    .share-content {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(215,203,184,0.7);
+      background: rgba(255,255,255,0.86);
+      color: var(--text);
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 14px;
+    }
+    .thumb {
+      width: 100%;
+      max-width: 220px;
+      max-height: 150px;
+      object-fit: contain;
+      border-radius: 12px;
+      border: 1px solid rgba(215,203,184,0.7);
+      background: #fff;
+      padding: 6px;
+      margin-top: 10px;
+    }
+    .share-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .action-btn {
+      border: 1px solid rgba(15,103,107,0.26);
+      border-radius: 10px;
+      padding: 8px 12px;
+      background: rgba(15,103,107,0.08);
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .action-btn.primary {
+      border-color: transparent;
+      background: var(--accent);
+      color: #fff;
+    }
+    .action-btn:hover {
+      text-decoration: none;
+      filter: brightness(0.96);
+    }
     .share-link {
       color: var(--accent);
       font-weight: 600;
@@ -180,11 +230,22 @@ const homeHTML = `{{define "home"}}<!DOCTYPE html>
       .hero, .content { padding: 16px; }
       .code-form { grid-template-columns: 1fr; }
       .share-item {
-        flex-direction: column;
-        align-items: stretch;
+        grid-template-columns: 1fr;
       }
+      .code-chip { width: fit-content; }
+      .thumb { max-width: 100%; }
     }
   </style>
+  <script>
+    async function copyShareText(value) {
+      if (!value) return;
+      try {
+        await navigator.clipboard.writeText(value);
+      } catch (_) {
+        window.prompt("复制失败，请手动复制：", value);
+      }
+    }
+  </script>
 </head>
 <body>
   <div class="shell">
@@ -211,6 +272,15 @@ const homeHTML = `{{define "home"}}<!DOCTYPE html>
             <div>
               <h3 class="share-name">{{.Name}}</h3>
               <div class="meta">{{.Type}}</div>
+              {{if .FileName}}<div class="meta">文件: {{.FileName}}{{if .FileSize}} · {{.FileSize}}{{end}}</div>{{end}}
+              {{if .PreviewText}}<div class="share-content">{{.PreviewText}}</div>{{end}}
+              {{if .ShowThumbnail}}<img class="thumb" src="{{.ContentURL}}" alt="{{.Name}} 缩略图">{{end}}
+              {{if not .Unavailable}}
+              <div class="share-actions">
+                {{if .ShowCopy}}<button class="action-btn" type="button" onclick='copyShareText({{printf "%q" .CopyText}})'>一键复制</button>{{end}}
+                {{if .ShowDownload}}<a class="action-btn primary" href="{{.DownloadURL}}">一键下载</a>{{end}}
+              </div>
+              {{end}}
               <div class="share-meta-row">
                 <span class="status-chip {{if .Unavailable}}unavailable{{end}}">{{.Status}}</span>
                 <a class="share-link" href="{{.URL}}">打开分享</a>
@@ -318,6 +388,28 @@ const manageHTML = `{{define "manage"}}<!DOCTYPE html>
       color: var(--ok);
     }
     .section-title { margin: 16px 0 8px; font-size: 14px; color: var(--muted); }
+    .clip-preview-text {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(213,208,196,0.9);
+      background: rgba(255,255,255,0.88);
+      color: var(--text);
+      line-height: 1.55;
+      font-size: 14px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .clip-preview-image {
+      width: 100%;
+      max-height: 180px;
+      object-fit: contain;
+      margin-top: 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(213,208,196,0.9);
+      background: #fff;
+      padding: 6px;
+    }
     .code-chip {
       display: inline-flex;
       align-items: center;
@@ -465,6 +557,12 @@ const manageHTML = `{{define "manage"}}<!DOCTYPE html>
             </div>
             <div class="section-title">时间</div>
             <div class="meta">创建于 {{.CreatedAt}}，最近活动 {{.UpdatedAt}}</div>
+            {{if .PreviewText}}
+            <div class="clip-preview-text">{{.PreviewText}}</div>
+            {{end}}
+            {{if .PreviewImage}}
+            <img class="clip-preview-image" src="{{.PreviewImage}}" alt="{{.Name}} 预览图">
+            {{end}}
           </div>
           <div class="controls">
             <div class="qr-box">

@@ -124,7 +124,6 @@ func shareClipboard() error {
 		Name string `json:"name"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&result)
-
 	if result.Name == "" {
 		result.Name = snapshot.Name
 	}

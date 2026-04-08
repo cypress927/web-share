@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os/exec"
 	"strings"
+	"syscall"
 )
 
 const (
@@ -43,7 +44,8 @@ func CaptureSnapshot() (*Snapshot, error) {
 }
 
 func captureText() (string, error) {
-	out, err := exec.Command("powershell.exe", "-NoProfile", "-Command", "Get-Clipboard -Raw").CombinedOutput()
+	script := "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; Get-Clipboard -Raw"
+	out, err := runHiddenPowerShell(script)
 	if err != nil {
 		return "", errors.New("读取剪贴板文本失败")
 	}
@@ -52,7 +54,7 @@ func captureText() (string, error) {
 
 func captureImage() (*Snapshot, error) {
 	script := "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; $img = [Windows.Forms.Clipboard]::GetImage(); if ($null -eq $img) { exit 2 }; $ms = New-Object System.IO.MemoryStream; $img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png); [Convert]::ToBase64String($ms.ToArray())"
-	out, err := exec.Command("powershell.exe", "-NoProfile", "-Command", script).CombinedOutput()
+	out, err := runHiddenPowerShell(script)
 	if err != nil {
 		return nil, errors.New("读取剪贴板图片失败")
 	}
@@ -71,4 +73,13 @@ func captureImage() (*Snapshot, error) {
 		ImageData: data,
 		MimeType:  "image/png",
 	}, nil
+}
+
+func runHiddenPowerShell(script string) ([]byte, error) {
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-Command", script)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: 0x08000000, // CREATE_NO_WINDOW
+	}
+	return cmd.CombinedOutput()
 }

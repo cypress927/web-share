@@ -104,6 +104,8 @@ type manageShareCard struct {
 	NetworkLinks   []string
 	NameInput      string
 	VisibleChecked bool
+	PreviewText    string
+	PreviewImage   string
 }
 
 type homePageData struct {
@@ -113,12 +115,21 @@ type homePageData struct {
 }
 
 type publicShareCard struct {
-	Name        string
-	Code        string
-	Type        string
-	URL         string
-	Unavailable bool
-	Status      string
+	Name          string
+	Code          string
+	Type          string
+	URL           string
+	Unavailable   bool
+	Status        string
+	PreviewText   string
+	CopyText      string
+	FileName      string
+	FileSize      string
+	DownloadURL   string
+	ContentURL    string
+	ShowCopy      bool
+	ShowDownload  bool
+	ShowThumbnail bool
 }
 
 type sharePageData struct {
@@ -614,15 +625,43 @@ func (m *Manager) listVisibleShares() []publicShareCard {
 			URL:  "/s/" + share.Code,
 		}
 		card.Type = shareTypeLabel(share)
-		if isPathBackedShare(share) {
+		switch share.Kind {
+		case shareKindClipboardText:
+			card.PreviewText = truncateText(share.TextContent, 180)
+			card.CopyText = share.TextContent
+			card.DownloadURL = fmt.Sprintf("/s/%s/raw", share.Code)
+			card.ShowCopy = true
+			card.ShowDownload = true
+			card.Status = "可访问"
+		case shareKindClipboardImage:
+			card.ContentURL = fmt.Sprintf("/s/%s/content", share.Code)
+			card.DownloadURL = fmt.Sprintf("/s/%s/raw", share.Code)
+			card.ShowThumbnail = true
+			card.ShowDownload = true
+			card.Status = "可访问"
+		default:
+			if _, err := os.Stat(share.Path); err != nil {
+				card.Unavailable = true
+				card.Status = "已失效"
+				break
+			}
+			card.Status = "可访问"
+			if !share.IsDir {
+				card.FileName = filepath.Base(share.Path)
+				if info, err := os.Stat(share.Path); err == nil {
+					card.FileSize = formatSize(info.Size())
+				}
+				card.DownloadURL = fmt.Sprintf("/s/%s/raw", share.Code)
+				card.ShowDownload = true
+			}
+		}
+		if isPathBackedShare(share) && card.Status == "" {
 			if _, err := os.Stat(share.Path); err != nil {
 				card.Unavailable = true
 				card.Status = "已失效"
 			} else {
 				card.Status = "可访问"
 			}
-		} else {
-			card.Status = "可访问"
 		}
 		shares = append(shares, card)
 	}
@@ -631,6 +670,17 @@ func (m *Manager) listVisibleShares() []publicShareCard {
 		return strings.ToLower(shares[i].Name) < strings.ToLower(shares[j].Name)
 	})
 	return shares
+}
+
+func truncateText(input string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+	runes := []rune(strings.TrimSpace(input))
+	if len(runes) <= maxRunes {
+		return string(runes)
+	}
+	return string(runes[:maxRunes]) + "..."
 }
 
 func (m *Manager) listManageCards() []manageShareCard {
@@ -655,6 +705,12 @@ func (m *Manager) listManageCards() []manageShareCard {
 		}
 		if !isPathBackedShare(share) {
 			card.Path = "Clipboard Snapshot"
+		}
+		switch share.Kind {
+		case shareKindClipboardText:
+			card.PreviewText = truncateText(share.TextContent, 220)
+		case shareKindClipboardImage:
+			card.PreviewImage = fmt.Sprintf("/s/%s/content", share.Code)
 		}
 		card.Type = shareTypeLabel(share)
 		if share.IsDir && share.Password != "" {
