@@ -600,6 +600,38 @@ func TestCreateClipboardTextShare(t *testing.T) {
 	}
 }
 
+func TestRenderFileSharePageDoesNotRequireDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "sample.txt")
+	if err := os.WriteFile(filePath, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+
+	mgr := &Manager{
+		cfg:       DefaultConfig(),
+		templates: mustParseTemplates(),
+		shares: map[string]*Share{
+			"share-1": {
+				ID:    "share-1",
+				Code:  "abcd",
+				Kind:  shareKindFile,
+				Path:  filePath,
+				Name:  "sample.txt",
+				IsDir: false,
+			},
+		},
+		uploads: make(map[string]*uploadSession),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/s/abcd", nil)
+	rec := httptest.NewRecorder()
+	mgr.handleShare(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+}
+
 func TestListVisibleSharesIncludesClipboardTextPreview(t *testing.T) {
 	mgr := &Manager{
 		cfg:       DefaultConfig(),
@@ -675,6 +707,42 @@ func TestListVisibleSharesIncludesFileQuickDownloadInfo(t *testing.T) {
 	}
 }
 
+func TestListVisibleSharesIncludesTextFilePreview(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "note.txt")
+	if err := os.WriteFile(filePath, []byte("第一行\n第二行"), 0o644); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+
+	mgr := &Manager{
+		cfg:       DefaultConfig(),
+		templates: mustParseTemplates(),
+		shares: map[string]*Share{
+			"share-1": {
+				ID:      "share-1",
+				Code:    "abcd",
+				Kind:    shareKindFile,
+				Name:    "note share",
+				Path:    filePath,
+				Visible: true,
+			},
+		},
+		uploads: make(map[string]*uploadSession),
+	}
+
+	cards := mgr.listVisibleShares()
+	if len(cards) != 1 {
+		t.Fatalf("expected 1 card, got %d", len(cards))
+	}
+	card := cards[0]
+	if !card.ShowCopy {
+		t.Fatal("expected text file card to show copy button")
+	}
+	if !strings.Contains(card.PreviewText, "第一行") {
+		t.Fatalf("unexpected text preview: %q", card.PreviewText)
+	}
+}
+
 func TestClipboardImageShareContentAndRaw(t *testing.T) {
 	image := []byte{0x89, 0x50, 0x4E, 0x47}
 	mgr := &Manager{
@@ -714,6 +782,40 @@ func TestClipboardImageShareContentAndRaw(t *testing.T) {
 	}
 	if got := rawRec.Header().Get("Content-Disposition"); !strings.Contains(got, "clip-image.png") {
 		t.Fatalf("expected png download filename, got %q", got)
+	}
+}
+
+func TestImageFileShareContentEndpoint(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "pic.png")
+	image := []byte{0x89, 0x50, 0x4E, 0x47}
+	if err := os.WriteFile(filePath, image, 0o644); err != nil {
+		t.Fatalf("write image: %v", err)
+	}
+
+	mgr := &Manager{
+		cfg:       DefaultConfig(),
+		templates: mustParseTemplates(),
+		shares: map[string]*Share{
+			"share-1": {
+				ID:   "share-1",
+				Code: "abcd",
+				Kind: shareKindFile,
+				Name: "pic share",
+				Path: filePath,
+			},
+		},
+		uploads: make(map[string]*uploadSession),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/s/abcd/content", nil)
+	rec := httptest.NewRecorder()
+	mgr.handleShare(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.Contains(got, "image/png") {
+		t.Fatalf("expected image/png content type, got %q", got)
 	}
 }
 

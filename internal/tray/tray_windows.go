@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -91,6 +92,18 @@ func shareClipboard() error {
 		return err
 	}
 
+	if len(snapshot.Paths) > 0 {
+		created := 0
+		for _, path := range snapshot.Paths {
+			if _, err := createShare(manager.CreateShareRequest{Path: path}); err != nil {
+				return err
+			}
+			created++
+		}
+		_ = notify.Info("Web Share", fmt.Sprintf("已从剪贴板添加 %d 个分享", created))
+		return nil
+	}
+
 	req := manager.CreateShareRequest{
 		Kind:        snapshot.Kind,
 		Name:        snapshot.Name,
@@ -101,34 +114,42 @@ func shareClipboard() error {
 		req.ImageBase64 = base64.StdEncoding.EncodeToString(snapshot.ImageData)
 	}
 
-	body, err := json.Marshal(req)
+	name, err := createShare(req)
 	if err != nil {
 		return err
+	}
+	if name == "" {
+		name = snapshot.Name
+	}
+	_ = notify.Info("Web Share", "分享已添加："+name)
+	return nil
+}
+
+func createShare(req manager.CreateShareRequest) (string, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return "", err
 	}
 
 	resp, err := http.Post(manager.LocalAPI("/api/shares"), "application/json", bytes.NewReader(body))
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		if msg := strings.TrimSpace(string(raw)); msg != "" {
-			return errors.New(msg)
+			return "", errors.New(msg)
 		}
-		return errors.New("创建分享失败")
+		return "", errors.New("创建分享失败")
 	}
 
 	var result struct {
 		Name string `json:"name"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&result)
-	if result.Name == "" {
-		result.Name = snapshot.Name
-	}
-	_ = notify.Info("Web Share", "分享已添加："+result.Name)
-	return nil
+	return result.Name, nil
 }
 
 func ShutdownProgram() error {

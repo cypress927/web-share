@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+	"time"
 )
 
 const (
@@ -21,9 +22,17 @@ type Snapshot struct {
 	Text      string
 	ImageData []byte
 	MimeType  string
+	Paths     []string
 }
 
 func CaptureSnapshot() (*Snapshot, error) {
+	if paths, err := captureFiles(); err == nil && len(paths) > 0 {
+		return &Snapshot{
+			Name:  "剪贴板文件",
+			Paths: paths,
+		}, nil
+	}
+
 	if image, err := captureImage(); err == nil {
 		return image, nil
 	}
@@ -38,9 +47,31 @@ func CaptureSnapshot() (*Snapshot, error) {
 
 	return &Snapshot{
 		Kind: kindText,
-		Name: "剪贴板文本",
+		Name: makeClipboardTextTitle(text),
 		Text: text,
 	}, nil
+}
+
+func captureFiles() ([]string, error) {
+	script := "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; $items = Get-Clipboard -Format FileDropList -ErrorAction Stop; if ($null -eq $items -or $items.Count -eq 0) { exit 2 }; $items | ForEach-Object { $_.ToString() }"
+	out, err := runHiddenPowerShell(script)
+	if err != nil {
+		return nil, errors.New("读取剪贴板文件失败")
+	}
+
+	lines := strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n")
+	paths := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		paths = append(paths, trimmed)
+	}
+	if len(paths) == 0 {
+		return nil, errors.New("剪贴板中没有文件")
+	}
+	return paths, nil
 }
 
 func captureText() (string, error) {
@@ -69,7 +100,7 @@ func captureImage() (*Snapshot, error) {
 
 	return &Snapshot{
 		Kind:      kindImage,
-		Name:      "剪贴板图片",
+		Name:      makeClipboardImageTitle(data),
 		ImageData: data,
 		MimeType:  "image/png",
 	}, nil
@@ -82,4 +113,32 @@ func runHiddenPowerShell(script string) ([]byte, error) {
 		CreationFlags: 0x08000000, // CREATE_NO_WINDOW
 	}
 	return cmd.CombinedOutput()
+}
+
+func makeClipboardTextTitle(text string) string {
+	clean := strings.ReplaceAll(strings.TrimSpace(text), "\r\n", "\n")
+	if clean == "" {
+		return "剪贴板文本"
+	}
+
+	first := clean
+	if idx := strings.IndexByte(clean, '\n'); idx >= 0 {
+		first = clean[:idx]
+	}
+	first = strings.TrimSpace(first)
+	if first == "" {
+		first = clean
+	}
+
+	runes := []rune(first)
+	const maxRunes = 20
+	if len(runes) > maxRunes {
+		first = string(runes[:maxRunes]) + "..."
+	}
+	return "文本: " + first
+}
+
+func makeClipboardImageTitle(_ []byte) string {
+	now := time.Now().Format("2006-01-02 15:04")
+	return "图片: " + now
 }

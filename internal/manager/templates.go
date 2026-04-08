@@ -983,8 +983,8 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
     </section>
     <section class="content">
       <div class="card">
-        <h2>{{if eq .ShareKind "clipboard_text"}}剪贴板文本{{else if eq .ShareKind "clipboard_image"}}剪贴板图片{{else if .IsDir}}内容列表{{else}}文件下载{{end}}</h2>
-        <p class="hint">{{if eq .ShareKind "clipboard_text"}}该分享来自剪贴板文本快照，仅支持只读查看和下载。{{else if eq .ShareKind "clipboard_image"}}该分享来自剪贴板图片快照，可预览和下载原图。{{else if .IsDir}}目录默认只读。只有设置上传密码时，页面才允许上传文件到当前目录。{{else}}文件分享始终只读，可直接下载。{{end}}</p>
+        <h2>{{if eq .ShareKind "clipboard_text"}}剪贴板文本{{else if eq .ShareKind "clipboard_image"}}剪贴板图片{{else if .IsDir}}内容列表{{else}}文件内容{{end}}</h2>
+        <p class="hint">{{if eq .ShareKind "clipboard_text"}}该分享来自剪贴板文本快照，仅支持只读查看和下载。{{else if eq .ShareKind "clipboard_image"}}该分享来自剪贴板图片快照，可预览和下载原图。{{else if .IsDir}}目录默认只读。只有设置上传密码时，页面才允许上传文件到当前目录。{{else if eq .PreviewKind "text"}}这是文本文件预览，可复制或下载原文件。{{else if eq .PreviewKind "image"}}这是图片文件预览，可下载原图。{{else}}文件分享始终只读，可直接下载。{{end}}</p>
         {{if .ErrorMessage}}<div class="status error">{{.ErrorMessage}}</div>{{end}}
         {{if .SuccessMessage}}<div class="status ok">{{.SuccessMessage}}</div>{{end}}
         {{if .Unavailable}}
@@ -995,6 +995,14 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
           <a class="download" href="{{.DownloadURL}}">下载文本</a>
         {{else if eq .ShareKind "clipboard_image"}}
           <img class="preview-image" src="{{.ContentURL}}" alt="Clipboard Image Preview">
+          <div class="section-divider"></div>
+          <a class="download" href="{{.DownloadURL}}">下载原图</a>
+        {{else if and (not .IsDir) (eq .PreviewKind "text")}}
+          <pre class="clipboard-text">{{.PreviewText}}</pre>
+          <div class="section-divider"></div>
+          <a class="download" href="{{.DownloadURL}}">下载文件</a>
+        {{else if and (not .IsDir) (eq .PreviewKind "image")}}
+          <img class="preview-image" src="{{.ContentURL}}" alt="File Image Preview">
           <div class="section-divider"></div>
           <a class="download" href="{{.DownloadURL}}">下载原图</a>
         {{else if .IsDir}}

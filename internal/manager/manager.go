@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	qrcode "github.com/skip2/go-qrcode"
 )
@@ -32,6 +33,9 @@ const (
 	defaultHost            = "0.0.0.0"
 	defaultPort            = 21910
 	defaultUploadChunkSize = 2 << 20
+	cardPreviewTextLimit   = 180
+	managePreviewTextLimit = 220
+	sharePreviewTextLimit  = 16000
 
 	shareKindFile           = "file"
 	shareKindDir            = "dir"
@@ -154,6 +158,8 @@ type sharePageData struct {
 	DownloadURL    string
 	ContentURL     string
 	TextContent    string
+	PreviewKind    string
+	PreviewText    string
 }
 
 type dirItem struct {
@@ -625,35 +631,33 @@ func (m *Manager) listVisibleShares() []publicShareCard {
 			URL:  "/s/" + share.Code,
 		}
 		card.Type = shareTypeLabel(share)
-		switch share.Kind {
-		case shareKindClipboardText:
-			card.PreviewText = truncateText(share.TextContent, 180)
-			card.CopyText = share.TextContent
-			card.DownloadURL = fmt.Sprintf("/s/%s/raw", share.Code)
-			card.ShowCopy = true
-			card.ShowDownload = true
-			card.Status = "可访问"
-		case shareKindClipboardImage:
-			card.ContentURL = fmt.Sprintf("/s/%s/content", share.Code)
-			card.DownloadURL = fmt.Sprintf("/s/%s/raw", share.Code)
-			card.ShowThumbnail = true
-			card.ShowDownload = true
-			card.Status = "可访问"
-		default:
-			if _, err := os.Stat(share.Path); err != nil {
+		if isPathBackedShare(share) {
+			info, err := os.Stat(share.Path)
+			if err != nil {
 				card.Unavailable = true
 				card.Status = "已失效"
-				break
-			}
-			card.Status = "可访问"
-			if !share.IsDir {
-				card.FileName = filepath.Base(share.Path)
-				if info, err := os.Stat(share.Path); err == nil {
+			} else {
+				card.Status = "可访问"
+				if !share.IsDir {
+					card.FileName = filepath.Base(share.Path)
 					card.FileSize = formatSize(info.Size())
 				}
-				card.DownloadURL = fmt.Sprintf("/s/%s/raw", share.Code)
-				card.ShowDownload = true
 			}
+		} else {
+			card.Status = "可访问"
+		}
+		kind, previewText := buildSharePreview(share, cardPreviewTextLimit)
+		if kind == "text" {
+			card.PreviewText = previewText
+			card.CopyText = previewText
+			card.ShowCopy = true
+		} else if kind == "image" {
+			card.ContentURL = fmt.Sprintf("/s/%s/content", share.Code)
+			card.ShowThumbnail = true
+		}
+		if !share.IsDir {
+			card.DownloadURL = fmt.Sprintf("/s/%s/raw", share.Code)
+			card.ShowDownload = true
 		}
 		if isPathBackedShare(share) && card.Status == "" {
 			if _, err := os.Stat(share.Path); err != nil {
@@ -706,10 +710,10 @@ func (m *Manager) listManageCards() []manageShareCard {
 		if !isPathBackedShare(share) {
 			card.Path = "Clipboard Snapshot"
 		}
-		switch share.Kind {
-		case shareKindClipboardText:
-			card.PreviewText = truncateText(share.TextContent, 220)
-		case shareKindClipboardImage:
+		kind, previewText := buildSharePreview(share, managePreviewTextLimit)
+		if kind == "text" {
+			card.PreviewText = previewText
+		} else if kind == "image" {
 			card.PreviewImage = fmt.Sprintf("/s/%s/content", share.Code)
 		}
 		card.Type = shareTypeLabel(share)
@@ -811,6 +815,31 @@ func (m *Manager) renderSharePage(w http.ResponseWriter, r *http.Request, share 
 
 	if share.IsDir && !rootInfo.IsDir() {
 		http.Error(w, "share root is not a directory", http.StatusBadRequest)
+		return
+	}
+	if !share.IsDir {
+		kind, previewText := buildSharePreview(share, sharePreviewTextLimit)
+		data := sharePageData{
+			Title:          "Web Share",
+			ShareCode:      share.Code,
+			SharedName:     share.Name,
+			ShareKind:      share.Kind,
+			ShareTypeLabel: shareTypeLabel(share),
+			SharedPath:     share.Path,
+			IsDir:          false,
+			UploadEnabled:  false,
+			Address:        fmt.Sprintf("http://%s%s", r.Host, browseURL(share.Code, "")),
+			ErrorMessage:   r.URL.Query().Get("error"),
+			SuccessMessage: r.URL.Query().Get("success"),
+			DownloadURL:    fmt.Sprintf("/s/%s/raw", share.Code),
+			ContentURL:     fmt.Sprintf("/s/%s/content", share.Code),
+			PreviewKind:    kind,
+			PreviewText:    previewText,
+			ChunkSize:      defaultUploadChunkSize,
+		}
+		if err := m.templates.ExecuteTemplate(w, "share", data); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -918,23 +947,113 @@ func (m *Manager) serveShareRaw(w http.ResponseWriter, r *http.Request, share *S
 }
 
 func (m *Manager) serveShareContent(w http.ResponseWriter, r *http.Request, share *Share) {
-	if share.Kind != shareKindClipboardImage {
-		http.NotFound(w, r)
+	switch share.Kind {
+	case shareKindClipboardImage:
+		if len(share.BinaryData) == 0 {
+			http.Error(w, "clipboard image is empty", http.StatusNotFound)
+			return
+		}
+		contentType := strings.TrimSpace(share.MimeType)
+		if contentType == "" {
+			contentType = "image/png"
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "no-store")
+		http.ServeContent(w, r, share.Name, time.Time{}, bytes.NewReader(share.BinaryData))
 		return
+	default:
+		if share.IsDir || !isImageExtension(filepath.Ext(share.Path)) {
+			http.NotFound(w, r)
+			return
+		}
+		file, err := os.Open(share.Path)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(share.Path)))
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "no-store")
+		http.ServeContent(w, r, info.Name(), info.ModTime(), file)
+	}
+}
+
+func buildSharePreview(share *Share, maxRunes int) (string, string) {
+	switch share.Kind {
+	case shareKindClipboardText:
+		return "text", truncateText(share.TextContent, maxRunes)
+	case shareKindClipboardImage:
+		return "image", ""
+	}
+	if share.IsDir || share.Path == "" {
+		return "", ""
+	}
+	if isImageExtension(filepath.Ext(share.Path)) {
+		return "image", ""
+	}
+	if !isTextExtension(filepath.Ext(share.Path)) {
+		return "", ""
+	}
+	text, ok := readTextPreview(share.Path, 64<<10)
+	if !ok {
+		return "", ""
+	}
+	return "text", truncateText(text, maxRunes)
+}
+
+func readTextPreview(path string, limit int64) (string, bool) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", false
+	}
+	defer file.Close()
+
+	if limit <= 0 {
+		limit = 64 << 10
 	}
 
-	if len(share.BinaryData) == 0 {
-		http.Error(w, "clipboard image is empty", http.StatusNotFound)
-		return
+	raw, err := io.ReadAll(io.LimitReader(file, limit))
+	if err != nil || len(raw) == 0 {
+		return "", false
 	}
+	if bytes.IndexByte(raw, 0) >= 0 {
+		return "", false
+	}
+	if !utf8.Valid(raw) {
+		raw = bytes.ToValidUTF8(raw, []byte("?"))
+	}
+	text := strings.TrimSpace(strings.ReplaceAll(string(raw), "\r\n", "\n"))
+	if text == "" {
+		return "", false
+	}
+	return text, true
+}
 
-	contentType := strings.TrimSpace(share.MimeType)
-	if contentType == "" {
-		contentType = "image/png"
+func isImageExtension(ext string) bool {
+	switch strings.ToLower(strings.TrimSpace(ext)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp":
+		return true
+	default:
+		return false
 	}
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Cache-Control", "no-store")
-	http.ServeContent(w, r, share.Name, time.Time{}, bytes.NewReader(share.BinaryData))
+}
+
+func isTextExtension(ext string) bool {
+	switch strings.ToLower(strings.TrimSpace(ext)) {
+	case ".txt", ".md", ".json", ".yaml", ".yml", ".toml", ".ini", ".log", ".csv", ".xml", ".html", ".htm", ".css", ".js", ".ts", ".tsx", ".jsx", ".go", ".py", ".java", ".c", ".h", ".cpp", ".hpp", ".rs", ".sh", ".ps1", ".bat":
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *Manager) serveShareArchive(w http.ResponseWriter, r *http.Request, share *Share) {
