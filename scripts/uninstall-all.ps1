@@ -1,5 +1,5 @@
 Param(
-    [string]$ExePath = ".\\web-share.exe",
+    [string]$ExePath = ".\web-share.exe",
     [string]$TaskName = "WebShare.AutoStart",
     [ValidateSet("en-US", "zh-CN")]
     [string]$Language = "en-US",
@@ -15,9 +15,10 @@ function Stop-WebShareProcesses {
 
     try {
         Invoke-WebRequest -Uri "http://127.0.0.1:21910/api/shutdown" -Method Post -UseBasicParsing -TimeoutSec 1 | Out-Null
-    } catch {}
+    } catch {
+    }
 
-    if (-not $ResolvedExePath) {
+    if ([string]::IsNullOrWhiteSpace($ResolvedExePath)) {
         Get-Process -Name "web-share" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
         return
     }
@@ -25,7 +26,7 @@ function Stop-WebShareProcesses {
     $normalized = $ResolvedExePath.ToLowerInvariant()
     $candidates = Get-CimInstance Win32_Process -Filter "Name='web-share.exe'" -ErrorAction SilentlyContinue
     foreach ($proc in $candidates) {
-        if (-not $proc.ExecutablePath) {
+        if ([string]::IsNullOrWhiteSpace($proc.ExecutablePath)) {
             continue
         }
         if ($proc.ExecutablePath.ToLowerInvariant() -ne $normalized) {
@@ -35,7 +36,20 @@ function Stop-WebShareProcesses {
     }
 }
 
-$resolvedExe = $null
+function Get-Message {
+    param(
+        [string]$Lang,
+        [string]$Key
+    )
+
+    switch ($Key) {
+        "done" { return "Web Share uninstalled." }
+        "data_removed" { return "Local data removed." }
+        default { return "" }
+    }
+}
+
+$resolvedExe = ""
 try {
     $resolvedExe = (Resolve-Path $ExePath).Path
 } catch {
@@ -58,24 +72,11 @@ if (Test-Path -LiteralPath $promptScriptPath) {
     Remove-Item -LiteralPath $promptScriptPath -Force
 }
 
-if ($RemoveData) {
-    if (Test-Path -LiteralPath $webShareDir) {
-        Remove-Item -LiteralPath $webShareDir -Recurse -Force
-    }
-    $cacheDbPath = Join-Path (Join-Path $env:LOCALAPPDATA "WebShare") "web-share.db"
-    if (Test-Path -LiteralPath $cacheDbPath) {
-        Remove-Item -LiteralPath $cacheDbPath -Force
-    }
+if ($RemoveData -and (Test-Path -LiteralPath $webShareDir)) {
+    Remove-Item -LiteralPath $webShareDir -Recurse -Force
 }
 
-if ($Language -eq "zh-CN") {
-    Write-Host "Web Share 已卸载（右键菜单、计划任务、运行进程清理完成）。"
-    if ($RemoveData) {
-        Write-Host "已额外删除本地数据。"
-    }
-} else {
-    Write-Host "Web Share uninstalled (context menu, scheduled task, and running processes cleaned)."
-    if ($RemoveData) {
-        Write-Host "Local data removed."
-    }
+Write-Host (Get-Message -Lang $Language -Key "done")
+if ($RemoveData) {
+    Write-Host (Get-Message -Lang $Language -Key "data_removed")
 }

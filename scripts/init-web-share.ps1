@@ -1,5 +1,5 @@
 Param(
-    [string]$ExePath = ".\\web-share.exe",
+    [string]$ExePath = ".\web-share.exe",
     [ValidateSet("en-US", "zh-CN")]
     [string]$Language = "en-US",
     [switch]$InstallStartupTask = $true,
@@ -43,13 +43,34 @@ function Set-ManagerDefaultLanguage {
         -ContentType "application/x-www-form-urlencoded" `
         -Body $body `
         -UseBasicParsing `
-        -TimeoutSec 5
-    return $resp.StatusCode -ge 200 -and $resp.StatusCode -lt 400
+        -MaximumRedirection 0 `
+        -ErrorAction SilentlyContinue
+
+    if ($null -eq $resp) {
+        return $false
+    }
+
+    return ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 400) -or $resp.StatusCode -eq 302 -or $resp.StatusCode -eq 303
+}
+
+function Get-Message {
+    param(
+        [string]$Lang,
+        [string]$Key
+    )
+
+    switch ($Key) {
+        "exe_missing" { return "Executable not found: " }
+        "manager_timeout" { return "Manager did not become ready in time while applying language." }
+        "apply_lang_failed" { return "Failed to apply default language to manager." }
+        "done" { return "Initialization completed. Context menu and language are configured." }
+        default { return "" }
+    }
 }
 
 $resolvedExe = (Resolve-Path $ExePath).Path
 if (-not (Test-Path -LiteralPath $resolvedExe)) {
-    throw "Executable not found: $resolvedExe"
+    throw ((Get-Message -Lang $Language -Key "exe_missing") + $resolvedExe)
 }
 
 $installContextMenuScript = (Resolve-Path (Join-Path $PSScriptRoot "install-context-menu.ps1")).Path
@@ -62,13 +83,12 @@ $managerWasRunning = Test-ManagerReady
 if (-not $managerWasRunning) {
     Start-Process -FilePath $resolvedExe -ArgumentList "run-manager" -WindowStyle Hidden
     if (-not (Wait-ManagerReady -WaitSeconds 10)) {
-        throw "Manager did not become ready in time while applying language."
+        throw (Get-Message -Lang $Language -Key "manager_timeout")
     }
 }
 
-$applied = Set-ManagerDefaultLanguage -Lang $Language
-if (-not $applied) {
-    throw "Failed to apply default language to manager."
+if (-not (Set-ManagerDefaultLanguage -Lang $Language)) {
+    throw (Get-Message -Lang $Language -Key "apply_lang_failed")
 }
 
 if ($InstallStartupTask) {
@@ -84,11 +104,8 @@ if ($StartNow) {
 } elseif (-not $managerWasRunning) {
     try {
         Invoke-WebRequest -Uri "http://127.0.0.1:21910/api/shutdown" -Method Post -UseBasicParsing -TimeoutSec 2 | Out-Null
-    } catch {}
+    } catch {
+    }
 }
 
-if ($Language -eq "zh-CN") {
-    Write-Host "初始化完成：语言=$Language，右键菜单已安装。"
-} else {
-    Write-Host "Initialization completed: language=$Language, context menu installed."
-}
+Write-Host (Get-Message -Lang $Language -Key "done")

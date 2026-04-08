@@ -21,35 +21,56 @@ function Test-ManagerReady {
     }
 }
 
+function Get-Message {
+    param(
+        [string]$Lang,
+        [string]$Key
+    )
+
+    if ($Lang -eq "zh-CN") {
+        switch ($Key) {
+            "exe_missing" { return "Executable not found: " }
+            "started" { return "Web Share started successfully." }
+            "already_running" { return "Web Share is already running." }
+            "dispatched" { return "Web Share start command dispatched." }
+        }
+    }
+
+    switch ($Key) {
+        "exe_missing" { return "Executable not found: " }
+        "started" { return "Web Share started successfully." }
+        "already_running" { return "Web Share is already running." }
+        "dispatched" { return "Web Share start command dispatched." }
+        default { return "" }
+    }
+}
+
 function Show-StartupBalloon {
     param(
         [string]$Lang,
         [bool]$ManagerWasStarted,
         [bool]$TrayWasStarted
     )
+
     if (-not $NotifyStart) {
         return
     }
+
     try {
         Add-Type -AssemblyName System.Windows.Forms
         Add-Type -AssemblyName System.Drawing
+
         $notify = New-Object System.Windows.Forms.NotifyIcon
         $notify.Icon = [System.Drawing.SystemIcons]::Information
         $notify.Visible = $true
         $notify.BalloonTipTitle = "Web Share"
-        if ($Lang -eq "zh-CN") {
-            if ($ManagerWasStarted -or $TrayWasStarted) {
-                $notify.BalloonTipText = "Web Share 已启动完成。"
-            } else {
-                $notify.BalloonTipText = "Web Share 已在运行。"
-            }
+
+        if ($ManagerWasStarted -or $TrayWasStarted) {
+            $notify.BalloonTipText = Get-Message -Lang $Lang -Key "started"
         } else {
-            if ($ManagerWasStarted -or $TrayWasStarted) {
-                $notify.BalloonTipText = "Web Share started successfully."
-            } else {
-                $notify.BalloonTipText = "Web Share is already running."
-            }
+            $notify.BalloonTipText = Get-Message -Lang $Lang -Key "already_running"
         }
+
         $notify.ShowBalloonTip(3000)
         Start-Sleep -Seconds 3
         $notify.Dispose()
@@ -59,9 +80,8 @@ function Show-StartupBalloon {
 }
 
 $resolvedExe = (Resolve-Path $ExePath).Path
-
 if (-not (Test-Path -LiteralPath $resolvedExe)) {
-    throw "Executable not found: $resolvedExe"
+    throw ((Get-Message -Lang $Language -Key "exe_missing") + $resolvedExe)
 }
 
 $managerWasStarted = $false
@@ -90,9 +110,4 @@ if ($StartTray) {
 }
 
 Show-StartupBalloon -Lang $Language -ManagerWasStarted $managerWasStarted -TrayWasStarted $trayWasStarted
-
-if ($Language -eq "zh-CN") {
-    Write-Host "Web Share 启动命令已下发。"
-} else {
-    Write-Host "Web Share start command dispatched."
-}
+Write-Host (Get-Message -Lang $Language -Key "dispatched")

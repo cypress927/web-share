@@ -24,23 +24,50 @@
 go build -ldflags="-H=windowsgui" -o .\web-share.exe .\cmd\web-share
 ```
 
-然后安装右键菜单：
+推荐直接使用初始化脚本：
 
 ```powershell
-.\web-share.exe install-context-menu -exe .\web-share.exe
+.\scripts\init-web-share.ps1 -ExePath .\web-share.exe -Language en-US
 ```
+
+初始化脚本会完成：
+
+- 安装右键菜单
+- 设置系统默认语言
+- 可选安装开机自启计划任务
+- 可选立即启动后台管理器和托盘
+
+如果只想单独安装右键菜单，也可以：
+
+```powershell
+.\web-share.exe install-context-menu -exe .\web-share.exe -lang en-US
+```
+
+或：
+
+```powershell
+.\scripts\install-context-menu.ps1 -ExePath .\web-share.exe -Language en-US
+```
+
+补充说明：
+
+- `-Language` 支持 `en-US` 和 `zh-CN`
+- 如果当前 `web-share.exe` 是旧版本且不支持 `-lang` 参数，需要先重新编译
 
 如果右键菜单没有立刻刷新，可以重启 `explorer.exe`，或者注销后重新登录。
 
 ## 右键菜单用法
 
-安装完成后：
+安装完成后，菜单语言会跟随你安装时传入的语言：
 
-- 右键文件
-  - `通过 Web 分享 > 只读分享`
-- 右键文件夹
-  - `通过 Web 分享 > 只读分享`
-  - `通过 Web 分享 > 设置上传密码后分享`
+- 英文：
+  - 文件：`Share via Web > Read-Only Share`
+  - 文件夹：`Share via Web > Read-Only Share`
+  - 文件夹：`Share via Web > Share with Upload Password`
+- 中文：
+  - 文件：`通过 Web 分享 > 只读分享`
+  - 文件夹：`通过 Web 分享 > 只读分享`
+  - 文件夹：`通过 Web 分享 > 设置上传密码后分享`
 
 说明：
 
@@ -199,8 +226,15 @@ http://<局域网IP>:21910/s/<share-code>
 使用脚本同时启动管理器和托盘：
 
 ```powershell
-.\scripts\start-web-share.ps1 -ExePath .\web-share.exe
+.\scripts\start-web-share.ps1 -ExePath .\web-share.exe -Language en-US
 ```
+
+行为说明：
+
+- 会同时启动后台管理器和托盘
+- 启动完成后会弹出成功通知
+- 若后台管理器已运行，不会重复拉起
+- `-Language` 会影响通知文案
 
 ## 卸载右键菜单
 
@@ -208,25 +242,54 @@ http://<局域网IP>:21910/s/<share-code>
 .\web-share.exe uninstall-context-menu
 ```
 
+或：
+
+```powershell
+.\scripts\uninstall-context-menu.ps1 -ExePath .\web-share.exe
+```
+
 ## 开机自启（计划任务）
 
 安装当前用户“登录后自动启动”任务：
 
 ```powershell
-.\scripts\install-startup-task.ps1 -ExePath .\web-share.exe
+.\scripts\install-startup-task.ps1 -ExePath .\web-share.exe -Language en-US
 ```
 
 卸载任务：
 
 ```powershell
-.\scripts\uninstall-startup-task.ps1
+.\scripts\uninstall-startup-task.ps1 -TaskName WebShare.AutoStart
 ```
 
 边界说明：
 
 - 默认任务名：`WebShare.AutoStart`
 - 安装时任务已存在会报错，可加 `-Force` 覆盖
-- 卸载时若任务不存在，脚本会提示并正常退出
+- 计划任务实际调用 `scripts/start-web-share.ps1`
+- 登录后会自动启动后台管理器和托盘，并显示启动完成通知
+
+## 统一卸载
+
+如果要一次性清理右键菜单、计划任务和运行中的进程：
+
+```powershell
+.\scripts\uninstall-all.ps1 -ExePath .\web-share.exe
+```
+
+如需同时删除本地数据：
+
+```powershell
+.\scripts\uninstall-all.ps1 -ExePath .\web-share.exe -RemoveData
+```
+
+统一卸载脚本会执行：
+
+- 卸载右键菜单
+- 卸载计划任务
+- 尝试关闭后台管理器和托盘进程
+- 删除本地生成的密码输入脚本
+- 可选删除 `%LOCALAPPDATA%\WebShare` 数据目录
 
 ## 常见说明
 

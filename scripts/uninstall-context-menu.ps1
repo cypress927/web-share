@@ -1,5 +1,5 @@
 Param(
-    [string]$ExePath = ".\\web-share.exe",
+    [string]$ExePath = ".\web-share.exe",
     [ValidateSet("en-US", "zh-CN")]
     [string]$Language = "en-US"
 )
@@ -7,16 +7,16 @@ Param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$resolved = $null
+$resolved = ""
 try {
     $resolved = (Resolve-Path $ExePath).Path
 } catch {
     $resolved = ""
 }
 
-if ($resolved -and (Test-Path -LiteralPath $resolved)) {
+if (-not [string]::IsNullOrWhiteSpace($resolved) -and (Test-Path -LiteralPath $resolved)) {
     & $resolved uninstall-context-menu
-    if ($LASTEXITCODE -ne 0) {
+    if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) {
         throw "Uninstall context menu failed with exit code $LASTEXITCODE"
     }
 } else {
@@ -31,8 +31,4 @@ if (Test-Path -LiteralPath $promptScriptPath) {
     Remove-Item -LiteralPath $promptScriptPath -Force
 }
 
-if ($Language -eq "zh-CN") {
-    Write-Host "已卸载右键菜单。"
-} else {
-    Write-Host "Context menu uninstalled."
-}
+Write-Host "Context menu uninstalled."

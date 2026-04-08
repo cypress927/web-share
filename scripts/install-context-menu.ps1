@@ -1,13 +1,20 @@
 Param(
-    [string]$ExePath = ".\\web-share.exe",
+    [string]$ExePath = ".\web-share.exe",
     [ValidateSet("en-US", "zh-CN")]
     [string]$Language = "en-US"
 )
 
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
 $resolved = (Resolve-Path $ExePath).Path
+if (-not (Test-Path -LiteralPath $resolved)) {
+    throw "Executable not found: $resolved"
+}
+
 & $resolved install-context-menu -exe $resolved -lang $Language
-if ($LASTEXITCODE -ne 0) {
-    throw "Install context menu failed with exit code $LASTEXITCODE"
+if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) {
+    throw "Install context menu failed with exit code $LASTEXITCODE. Rebuild web-share.exe if it does not support -lang yet."
 }
 
 Write-Host "Context menu installed. Language: $Language"

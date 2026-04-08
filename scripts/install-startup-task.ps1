@@ -19,7 +19,7 @@ if (-not (Test-Path -LiteralPath $resolvedExe)) {
 
 $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 if ($existing -and -not $Force) {
-    throw "计划任务已存在：$TaskName。若要覆盖请加 -Force。"
+    throw "Scheduled task already exists: $TaskName. Use -Force to replace it."
 }
 if ($existing -and $Force) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
@@ -29,6 +29,7 @@ $notifyArg = ""
 if ($NotifyStart) {
     $notifyArg = " -NotifyStart"
 }
+
 $argument = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`" -ExePath `"$resolvedExe`" -Language `"$Language`"$notifyArg"
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $argument
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
@@ -42,8 +43,4 @@ Register-ScheduledTask `
     -Description "Start Web Share manager and tray at user logon" `
     -RunLevel Limited | Out-Null
 
-if ($Language -eq "zh-CN") {
-    Write-Host "已创建开机自启计划任务：$TaskName"
-} else {
-    Write-Host "Scheduled task created: $TaskName"
-}
+Write-Host "Scheduled task created: $TaskName"
