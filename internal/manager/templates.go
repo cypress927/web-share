@@ -1,7 +1,7 @@
 package manager
 
 const homeHTML = `{{define "home"}}<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="{{.CurrentLang}}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -43,6 +43,17 @@ const homeHTML = `{{define "home"}}<!DOCTYPE html>
       padding: 24px;
       border-bottom: 1px solid var(--line);
       background: linear-gradient(135deg, rgba(15,103,107,0.08), rgba(191,103,56,0.08));
+    }
+    .lang-switch {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+    .lang-switch a.active {
+      font-weight: 700;
+      text-decoration: underline;
     }
     .eyebrow {
       display: inline-block;
@@ -247,7 +258,7 @@ const homeHTML = `{{define "home"}}<!DOCTYPE html>
         const value = await resp.text();
         await navigator.clipboard.writeText(value);
       } catch (_) {
-        alert("复制失败，请稍后重试。");
+        alert({{printf "%q" (tr .CurrentLang "home.copy_failed")}});
       }
     }
   </script>
@@ -255,21 +266,26 @@ const homeHTML = `{{define "home"}}<!DOCTYPE html>
 <body>
   <div class="shell">
     <section class="hero">
-      <span class="eyebrow">Web Share</span>
-      <h1>可访问的分享</h1>
-      <p>首页只展示分享者设置为可见的内容。你也可以直接输入分享码进入指定分享。</p>
+      <div class="lang-switch">
+        <span>{{tr .CurrentLang "lang.switch"}}:</span>
+        <a href="{{.LangZHURL}}" class="{{if eq .CurrentLang "zh-CN"}}active{{end}}">{{tr .CurrentLang "lang.zh"}}</a>
+        <a href="{{.LangENURL}}" class="{{if eq .CurrentLang "en-US"}}active{{end}}">{{tr .CurrentLang "lang.en"}}</a>
+      </div>
+      <span class="eyebrow">{{tr .CurrentLang "site.brand"}}</span>
+      <h1>{{tr .CurrentLang "home.title"}}</h1>
+      <p>{{tr .CurrentLang "home.subtitle"}}</p>
     </section>
     <section class="content">
       <div class="card">
-        <h2>输入分享码</h2>
+        <h2>{{tr .CurrentLang "home.input_code"}}</h2>
         <form class="code-form" action="/" method="get">
-          <input type="text" name="code" placeholder="例如 a7k2m3" autocomplete="off" required>
-          <button type="submit">打开分享</button>
+          <input type="text" name="code" placeholder="{{tr .CurrentLang "home.code_placeholder"}}" autocomplete="off" required>
+          <button type="submit">{{tr .CurrentLang "home.open_share"}}</button>
         </form>
         {{if .ErrorMessage}}<div class="status">{{.ErrorMessage}}</div>{{end}}
       </div>
       <div class="card">
-        <h2>首页可见的分享</h2>
+        <h2>{{tr .CurrentLang "home.visible"}}</h2>
         {{if .VisibleShares}}
         <div class="share-list">
           {{range .VisibleShares}}
@@ -277,26 +293,26 @@ const homeHTML = `{{define "home"}}<!DOCTYPE html>
             <div>
               <h3 class="share-name">{{.Name}}</h3>
               <div class="meta">{{.Type}}</div>
-              {{if .FileName}}<div class="meta">文件: {{.FileName}}{{if .FileSize}} · {{.FileSize}}{{end}}</div>{{end}}
+              {{if .FileName}}<div class="meta">{{tr $.CurrentLang "home.file_meta_prefix"}}: {{.FileName}}{{if .FileSize}} · {{.FileSize}}{{end}}</div>{{end}}
               {{if .PreviewText}}<div class="share-content">{{.PreviewText}}</div>{{end}}
-              {{if .ShowThumbnail}}<img class="thumb" src="{{.ContentURL}}" alt="{{.Name}} 缩略图">{{end}}
+              {{if .ShowThumbnail}}<img class="thumb" src="{{.ContentURL}}" alt="{{.Name}} thumbnail">{{end}}
               {{if not .Unavailable}}
               <div class="share-actions">
-                {{if .ShowCopy}}<button class="action-btn" type="button" onclick='copyShareText({{printf "%q" .CopyURL}})'>一键复制</button>{{end}}
-                {{if .ShowDownload}}<a class="action-btn primary" href="{{.DownloadURL}}">一键下载</a>{{end}}
+                {{if .ShowCopy}}<button class="action-btn" type="button" onclick='copyShareText({{printf "%q" .CopyURL}})'>{{tr $.CurrentLang "home.copy"}}</button>{{end}}
+                {{if .ShowDownload}}<a class="action-btn primary" href="{{.DownloadURL}}">{{tr $.CurrentLang "home.download"}}</a>{{end}}
               </div>
               {{end}}
               <div class="share-meta-row">
                 <span class="status-chip {{if .Unavailable}}unavailable{{end}}">{{.Status}}</span>
-                <a class="share-link" href="{{.URL}}">打开分享</a>
+                <a class="share-link" href="{{.URL}}">{{tr $.CurrentLang "home.open"}}</a>
               </div>
             </div>
-            <span class="code-chip">分享码 {{.Code}}</span>
+            <span class="code-chip">{{tr $.CurrentLang "home.share_code"}} {{.Code}}</span>
           </div>
           {{end}}
         </div>
         {{else}}
-        <div class="empty">当前没有可见的分享。</div>
+        <div class="empty">{{tr .CurrentLang "home.empty"}}</div>
         {{end}}
       </div>
     </section>
@@ -306,7 +322,7 @@ const homeHTML = `{{define "home"}}<!DOCTYPE html>
 `
 
 const manageHTML = `{{define "manage"}}<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="{{.CurrentLang}}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -362,6 +378,35 @@ const manageHTML = `{{define "manage"}}<!DOCTYPE html>
     }
     h1 { margin: 14px 0 8px; font-size: clamp(30px, 5vw, 46px); }
     p { margin: 0; color: var(--muted); line-height: 1.6; }
+    .lang-switch {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+    .lang-switch a.active {
+      font-weight: 700;
+      text-decoration: underline;
+    }
+    .lang-default-form {
+      margin-top: 12px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .lang-default-form select {
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      font: inherit;
+      background: #fff;
+    }
+    .lang-default-form button {
+      padding: 8px 12px;
+      border-radius: 10px;
+    }
     .cards {
       display: grid;
       gap: 18px;
@@ -512,23 +557,36 @@ const manageHTML = `{{define "manage"}}<!DOCTYPE html>
   </style>
   <script>
     async function stopShare(id) {
-      const ok = window.confirm('停止这个分享？');
+      const ok = window.confirm({{printf "%q" (tr .CurrentLang "manage.stop_confirm")}});
       if (!ok) return;
       const resp = await fetch('/api/shares/' + id + '/stop', { method: 'POST' });
       if (resp.ok) {
         window.location.reload();
         return;
       }
-      alert('停止分享失败');
+      alert({{printf "%q" (tr .CurrentLang "manage.stop_failed")}});
     }
   </script>
 </head>
 <body>
   <div class="shell">
     <section class="hero">
-      <span class="eyebrow">Local Manager</span>
-      <h1>正在共享的内容</h1>
-      <p>你可以为分享设置短码访问入口、修改显示名称，并决定它是否出现在公开首页。</p>
+      <div class="lang-switch">
+        <span>{{tr .CurrentLang "lang.switch"}}:</span>
+        <a href="{{.LangZHURL}}" class="{{if eq .CurrentLang "zh-CN"}}active{{end}}">{{tr .CurrentLang "lang.zh"}}</a>
+        <a href="{{.LangENURL}}" class="{{if eq .CurrentLang "en-US"}}active{{end}}">{{tr .CurrentLang "lang.en"}}</a>
+      </div>
+      <span class="eyebrow">{{tr .CurrentLang "site.brand"}}</span>
+      <h1>{{tr .CurrentLang "manage.title"}}</h1>
+      <p>{{tr .CurrentLang "manage.subtitle"}}</p>
+      <form class="lang-default-form" action="/manage/settings/language" method="post">
+        <span>{{tr .CurrentLang "manage.default_lang"}}:</span>
+        <select name="default_lang">
+          <option value="zh-CN" {{if eq .DefaultLang "zh-CN"}}selected{{end}}>{{tr .CurrentLang "lang.zh"}}</option>
+          <option value="en-US" {{if eq .DefaultLang "en-US"}}selected{{end}}>{{tr .CurrentLang "lang.en"}}</option>
+        </select>
+        <button type="submit">{{tr .CurrentLang "manage.default_lang_apply"}}</button>
+      </form>
     </section>
     <section class="cards">
       {{if .Shares}}
@@ -542,54 +600,54 @@ const manageHTML = `{{define "manage"}}<!DOCTYPE html>
               <span class="tag ok">{{.Mode}}</span>
               <span class="tag">{{.Visibility}}</span>
             </div>
-            <div class="section-title">分享码</div>
+            <div class="section-title">{{tr $.CurrentLang "manage.section_share_code"}}</div>
             <div class="code-chip">{{.Code}}</div>
-            <div class="section-title">公开首页</div>
+            <div class="section-title">{{tr $.CurrentLang "manage.section_public_home"}}</div>
             <div class="link-row">
               <a class="link-chip" href="{{.PublicURL}}" target="_blank">{{.PublicURL}}</a>
             </div>
-            <div class="section-title">本机访问</div>
+            <div class="section-title">{{tr $.CurrentLang "manage.section_local_access"}}</div>
             <div class="link-row">
               <a class="link-chip" href="{{.LocalURL}}" target="_blank">{{.LocalURL}}</a>
             </div>
-            <div class="section-title">局域网访问</div>
+            <div class="section-title">{{tr $.CurrentLang "manage.section_lan_access"}}</div>
             <div class="link-row">
               {{range .NetworkLinks}}
               <a class="link-chip" href="{{.}}" target="_blank">{{.}}</a>
               {{else}}
-              <span class="meta">未检测到可用局域网 IPv4 地址</span>
+              <span class="meta">{{tr $.CurrentLang "manage.no_lan_ipv4"}}</span>
               {{end}}
             </div>
-            <div class="section-title">时间</div>
-            <div class="meta">创建于 {{.CreatedAt}}，最近活动 {{.UpdatedAt}}</div>
+            <div class="section-title">{{tr $.CurrentLang "manage.section_time"}}</div>
+            <div class="meta">{{tr $.CurrentLang "manage.created_at"}} {{.CreatedAt}}, {{tr $.CurrentLang "manage.updated_at"}} {{.UpdatedAt}}</div>
             {{if .PreviewText}}
             <div class="clip-preview-text">{{.PreviewText}}</div>
             {{end}}
             {{if .PreviewImage}}
-            <img class="clip-preview-image" src="{{.PreviewImage}}" alt="{{.Name}} 预览图">
+            <img class="clip-preview-image" src="{{.PreviewImage}}" alt="{{.Name}} preview">
             {{end}}
           </div>
           <div class="controls">
             <div class="qr-box">
               <img src="{{.QRCodeDataURL}}" alt="Share QR Code">
-              <div class="meta" style="margin-top: 10px;">手机扫码直接打开当前分享</div>
+              <div class="meta" style="margin-top: 10px;">{{tr $.CurrentLang "manage.qr_hint"}}</div>
             </div>
             <form action="/manage/shares/{{.ID}}/update" method="post">
               <input type="text" name="name" value="{{.NameInput}}" required>
               <label class="toggle">
                 <input type="checkbox" name="visible" {{if .VisibleChecked}}checked{{end}}>
-                在首页显示这个分享
+                {{tr $.CurrentLang "manage.show_on_home"}}
               </label>
               <div class="action-row">
-                <button type="submit">保存设置</button>
-                <button class="secondary" type="button" onclick="stopShare('{{.ID}}')">停止分享</button>
+                <button type="submit">{{tr $.CurrentLang "manage.save"}}</button>
+                <button class="secondary" type="button" onclick="stopShare('{{.ID}}')">{{tr $.CurrentLang "manage.stop"}}</button>
               </div>
             </form>
           </div>
         </article>
         {{end}}
       {{else}}
-        <div class="empty">当前还没有分享内容。使用右键菜单新建分享后，这里会实时显示列表。</div>
+        <div class="empty">{{if eq .CurrentLang "zh-CN"}}当前还没有分享内容。使用右键菜单新建分享后，这里会实时显示列表。{{else}}No shares yet. Create one from the context menu and it will appear here in real time.{{end}}</div>
       {{end}}
     </section>
   </div>
@@ -598,7 +656,7 @@ const manageHTML = `{{define "manage"}}<!DOCTYPE html>
 `
 
 const shareHTML = `{{define "share"}}<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="{{.CurrentLang}}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -662,6 +720,17 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       color: var(--muted);
       font-size: 14px;
       word-break: break-all;
+    }
+    .lang-switch {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+    .lang-switch a.active {
+      font-weight: 700;
+      text-decoration: underline;
     }
     .hero-stack {
       display: grid;
@@ -952,9 +1021,9 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
         font-size: 12px;
         letter-spacing: 0.02em;
       }
-      td:nth-child(1)::before { content: "名称"; }
-      td:nth-child(2)::before { content: "大小"; }
-      td:nth-child(3)::before { content: "修改时间"; }
+      td:nth-child(1)::before { content: "{{tr .CurrentLang "share.col_name"}}"; }
+      td:nth-child(2)::before { content: "{{tr .CurrentLang "share.col_size"}}"; }
+      td:nth-child(3)::before { content: "{{tr .CurrentLang "share.col_mod_time"}}"; }
       .download,
       button {
         width: 100%;
@@ -966,10 +1035,15 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
 <body>
   <div class="shell">
     <section class="hero">
+      <div class="lang-switch">
+        <span>{{tr .CurrentLang "lang.switch"}}:</span>
+        <a href="{{.LangZHURL}}" class="{{if eq .CurrentLang "zh-CN"}}active{{end}}">{{tr .CurrentLang "lang.zh"}}</a>
+        <a href="{{.LangENURL}}" class="{{if eq .CurrentLang "en-US"}}active{{end}}">{{tr .CurrentLang "lang.en"}}</a>
+      </div>
       <span class="eyebrow">{{.ShareTypeLabel}}</span>
       <h1>{{.SharedName}}</h1>
       <div class="hero-stack">
-        <div class="code-chip">分享码 {{.ShareCode}}</div>
+        <div class="code-chip">{{tr .CurrentLang "home.share_code"}} {{.ShareCode}}</div>
         {{if and .IsDir (not .Unavailable)}}
         <div class="crumbs">
           {{range $index, $crumb := .Breadcrumbs}}
@@ -978,50 +1052,50 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
           {{end}}
         </div>
         <div class="path-row">
-          <span class="path-chip">当前目录 {{.CurrentLabel}}</span>
-          {{if .ParentURL}}<a class="back-link" href="{{.ParentURL}}">返回上一级</a>{{end}}
+          <span class="path-chip">{{tr .CurrentLang "share.current_dir"}} {{.CurrentLabel}}</span>
+          {{if .ParentURL}}<a class="back-link" href="{{.ParentURL}}">{{tr .CurrentLang "share.back_parent"}}</a>{{end}}
         </div>
         {{end}}
-        {{if .SharedPath}}<div class="meta">路径: {{.SharedPath}}</div>{{end}}
+        {{if .SharedPath}}<div class="meta">{{tr .CurrentLang "share.path"}}: {{.SharedPath}}</div>{{end}}
         <a class="hero-link" href="{{.Address}}">{{.Address}}</a>
       </div>
     </section>
     <section class="content">
       <div class="card">
-        <h2>{{if eq .ShareKind "clipboard_text"}}剪贴板文本{{else if eq .ShareKind "clipboard_image"}}剪贴板图片{{else if .IsDir}}内容列表{{else}}文件内容{{end}}</h2>
-        <p class="hint">{{if eq .ShareKind "clipboard_text"}}该分享来自剪贴板文本快照，仅支持只读查看和下载。{{else if eq .ShareKind "clipboard_image"}}该分享来自剪贴板图片快照，可预览和下载原图。{{else if .IsDir}}目录默认只读。只有设置上传密码时，页面才允许上传文件到当前目录。{{else if eq .PreviewKind "text"}}这是文本文件预览，可复制或下载原文件。{{else if eq .PreviewKind "image"}}这是图片文件预览，可下载原图。{{else}}文件分享始终只读，可直接下载。{{end}}</p>
+        <h2>{{if eq .ShareKind "clipboard_text"}}{{tr .CurrentLang "share.h2.clipboard_text"}}{{else if eq .ShareKind "clipboard_image"}}{{tr .CurrentLang "share.h2.clipboard_image"}}{{else if .IsDir}}{{tr .CurrentLang "share.h2.dir"}}{{else}}{{tr .CurrentLang "share.h2.file"}}{{end}}</h2>
+        <p class="hint">{{if eq .ShareKind "clipboard_text"}}{{tr .CurrentLang "share.hint.clipboard_text"}}{{else if eq .ShareKind "clipboard_image"}}{{tr .CurrentLang "share.hint.clipboard_image"}}{{else if .IsDir}}{{tr .CurrentLang "share.hint.dir"}}{{else if eq .PreviewKind "text"}}{{tr .CurrentLang "share.hint.text_file"}}{{else if eq .PreviewKind "image"}}{{tr .CurrentLang "share.hint.image_file"}}{{else}}{{tr .CurrentLang "share.hint.file"}}{{end}}</p>
         {{if .ErrorMessage}}<div class="status error">{{.ErrorMessage}}</div>{{end}}
         {{if .SuccessMessage}}<div class="status ok">{{.SuccessMessage}}</div>{{end}}
         {{if .Unavailable}}
-          <p class="readonly">该分享仍然存在于管理器中，但它指向的原始文件或文件夹已不存在。请联系分享者重新创建分享。</p>
+          <p class="readonly">{{tr .CurrentLang "share.readonly.missing"}}</p>
         {{else if eq .ShareKind "clipboard_text"}}
           <pre class="clipboard-text">{{.TextContent}}</pre>
           <div class="section-divider"></div>
-          <a class="download" href="{{.DownloadURL}}">下载文本</a>
+          <a class="download" href="{{.DownloadURL}}">{{tr .CurrentLang "share.download_text"}}</a>
         {{else if eq .ShareKind "clipboard_image"}}
           <img class="preview-image" src="{{.ContentURL}}" alt="Clipboard Image Preview">
           <div class="section-divider"></div>
-          <a class="download" href="{{.DownloadURL}}">下载原图</a>
+          <a class="download" href="{{.DownloadURL}}">{{tr .CurrentLang "share.download_image"}}</a>
         {{else if and (not .IsDir) (eq .PreviewKind "text")}}
           <pre class="clipboard-text">{{.PreviewText}}</pre>
           <div class="section-divider"></div>
-          <a class="download" href="{{.DownloadURL}}">下载文件</a>
+          <a class="download" href="{{.DownloadURL}}">{{tr .CurrentLang "share.download"}}</a>
         {{else if and (not .IsDir) (eq .PreviewKind "image")}}
           <img class="preview-image" src="{{.ContentURL}}" alt="File Image Preview">
           <div class="section-divider"></div>
-          <a class="download" href="{{.DownloadURL}}">下载原图</a>
+          <a class="download" href="{{.DownloadURL}}">{{tr .CurrentLang "share.download_image"}}</a>
         {{else if .IsDir}}
           <div class="upload-actions">
-            <a class="download" href="/s/{{.ShareCode}}/archive">下载整个分享内容</a>
+            <a class="download" href="/s/{{.ShareCode}}/archive">{{tr .CurrentLang "share.download_all"}}</a>
           </div>
           <div class="section-divider"></div>
           <table>
             <thead>
               <tr>
-                <th>名称</th>
-                <th>大小</th>
-                <th>修改时间</th>
-                <th>操作</th>
+                <th>{{tr .CurrentLang "share.col_name"}}</th>
+                <th>{{tr .CurrentLang "share.col_size"}}</th>
+                <th>{{tr .CurrentLang "share.col_mod_time"}}</th>
+                <th>{{tr .CurrentLang "share.col_actions"}}</th>
               </tr>
             </thead>
             <tbody>
@@ -1033,45 +1107,45 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
                 <td>
                   {{if .IsDir}}
                     <div class="item-actions">
-                      <a class="inline-link" href="{{.URL}}">进入</a>
-                      <a class="inline-link" href="{{.ArchiveURL}}">打包下载</a>
+                      <a class="inline-link" href="{{.URL}}">{{tr $.CurrentLang "share.enter"}}</a>
+                      <a class="inline-link" href="{{.ArchiveURL}}">{{tr $.CurrentLang "share.archive_download"}}</a>
                     </div>
                   {{else}}
-                    <a class="inline-link" href="{{.URL}}">下载</a>
+                    <a class="inline-link" href="{{.URL}}">{{tr $.CurrentLang "home.download"}}</a>
                   {{end}}
                 </td>
               </tr>
               {{else}}
-              <tr><td colspan="4">目录为空</td></tr>
+              <tr><td colspan="4">{{tr .CurrentLang "share.folder_empty"}}</td></tr>
               {{end}}
             </tbody>
           </table>
         {{else}}
-          <a class="download" href="/s/{{.ShareCode}}/raw">下载文件</a>
+          <a class="download" href="/s/{{.ShareCode}}/raw">{{tr .CurrentLang "share.download"}}</a>
         {{end}}
       </div>
       <div class="card">
-        <h2>{{if .UploadEnabled}}上传入口{{else}}访问模式{{end}}</h2>
+        <h2>{{if .UploadEnabled}}{{tr .CurrentLang "share.h2.upload"}}{{else}}{{tr .CurrentLang "share.h2.access_mode"}}{{end}}</h2>
         {{if .Unavailable}}
-          <p class="readonly">该分享当前不可用，因此不能上传或下载内容。</p>
+          <p class="readonly">{{tr .CurrentLang "share.readonly.unavailable"}}</p>
         {{else if or (eq .ShareKind "clipboard_text") (eq .ShareKind "clipboard_image")}}
-          <p class="readonly">剪贴板分享为只读快照，不提供上传能力。</p>
+          <p class="readonly">{{tr .CurrentLang "share.readonly.clipboard"}}</p>
         {{else if .UploadEnabled}}
-          <p class="hint">输入分享者设置的上传密码后，可把文件分片上传到当前目录。上传过程中会显示实时进度。</p>
+          <p class="hint">{{tr .CurrentLang "share.hint.upload_enabled"}}</p>
           <div class="section-divider"></div>
           <form id="upload-form">
             <input type="hidden" name="path" value="{{.CurrentPath}}">
             <input type="file" name="file">
             <input type="file" name="folder" id="folder-input" webkitdirectory directory multiple hidden>
-            <input type="password" name="password" placeholder="上传密码" required>
+            <input type="password" name="password" placeholder="{{tr .CurrentLang "share.upload_password_placeholder"}}" required>
             <div class="upload-actions">
-              <button type="submit" id="upload-button">上传文件</button>
-              <button type="button" class="ghost-button" id="upload-folder-button">选择文件夹</button>
+              <button type="submit" id="upload-button">{{tr .CurrentLang "share.upload_file"}}</button>
+              <button type="button" class="ghost-button" id="upload-folder-button">{{tr .CurrentLang "share.upload_folder"}}</button>
             </div>
             <div class="upload-status" id="upload-status" hidden>
               <div class="progress-shell"><div class="progress-bar" id="upload-progress"></div></div>
               <div class="progress-meta">
-                <div class="upload-status-text" id="upload-status-text">准备上传</div>
+                <div class="upload-status-text" id="upload-status-text">{{if eq .CurrentLang "zh-CN"}}准备上传{{else}}Preparing upload{{end}}</div>
                 <div id="upload-progress-text">0%</div>
                 <div id="upload-detail-text"></div>
               </div>
@@ -1080,9 +1154,9 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
         {{else}}
           <p class="readonly">
             {{if .IsDir}}
-            当前目录分享为只读模式。若需要上传文件，请由分享者重新设置带密码的共享。
+            {{tr .CurrentLang "share.readonly.dir"}}
             {{else}}
-            文件分享不提供上传能力。
+            {{tr .CurrentLang "share.readonly.file"}}
             {{end}}
           </p>
         {{end}}
@@ -1106,6 +1180,53 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       const detailText = document.getElementById("upload-detail-text");
       const chunkSize = {{.ChunkSize}};
       const shareCode = "{{.ShareCode}}";
+      const t = {{if eq .CurrentLang "zh-CN"}}{
+        uploaded: "已上传 ",
+        chunk: "，分片 ",
+        cannotStart: "无法开始上传",
+        uploading: "正在上传 ",
+        currentFileDone: "当前文件 ",
+        doneBytes: "，已完成 ",
+        currentFileChunk: "当前文件 ",
+        chunkLabel: "，分片 ",
+        waitServer: "正在等待服务端写入...",
+        selectFiles: "请选择要上传的文件或文件夹",
+        needPassword: "请输入上传密码",
+        preparing: "正在准备上传...",
+        totalFiles: "共 ",
+        fileSuffix: " 个文件",
+        processing: "正在处理 ",
+        indexPrefix: "第 ",
+        indexMid: " / ",
+        uploadDone: "上传完成",
+        uploadedTotal: "共上传 ",
+        uploadSuccess: "上传成功",
+        uploadFailed: "上传失败",
+        chunkUploadFailed: "上传分片失败"
+      }{{else}}{
+        uploaded: "Uploaded ",
+        chunk: ", chunk ",
+        cannotStart: "Failed to start upload",
+        uploading: "Uploading ",
+        currentFileDone: "Current file ",
+        doneBytes: ", completed ",
+        currentFileChunk: "Current file ",
+        chunkLabel: ", chunk ",
+        waitServer: "Waiting for server write...",
+        selectFiles: "Please select files or a folder to upload",
+        needPassword: "Please enter upload password",
+        preparing: "Preparing upload...",
+        totalFiles: "Total ",
+        fileSuffix: " files",
+        processing: "Processing ",
+        indexPrefix: "File ",
+        indexMid: " / ",
+        uploadDone: "Upload complete",
+        uploadedTotal: "Uploaded ",
+        uploadSuccess: "Upload succeeded",
+        uploadFailed: "Upload failed",
+        chunkUploadFailed: "Chunk upload failed"
+      }{{end}};
 
       if (!form || !fileInput || !folderInput || !passwordInput || !pathInput || !button || !folderButton || !statusBox || !progressBar || !statusText || !progressText || !detailText) {
         return;
@@ -1130,7 +1251,7 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
         progressText.textContent = percent.toFixed(percent >= 100 ? 0 : 1) + "%";
         statusText.textContent = message;
         statusText.className = "upload-status-text" + (stateClass ? " " + stateClass : "");
-        detailText.textContent = detail || ("已上传 " + formatBytes(uploadedBytes) + " / " + formatBytes(totalBytes) + "，分片 " + Math.min(nextIndex, totalChunks) + " / " + totalChunks);
+        detailText.textContent = detail || (t.uploaded + formatBytes(uploadedBytes) + " / " + formatBytes(totalBytes) + t.chunk + Math.min(nextIndex, totalChunks) + " / " + totalChunks);
       };
 
       const setBusy = (busy) => {
@@ -1161,7 +1282,7 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
           })
         });
         if (!startResp.ok) {
-          throw new Error(await startResp.text() || "无法开始上传");
+          throw new Error(await startResp.text() || t.cannotStart);
         }
 
         const startData = await startResp.json();
@@ -1175,8 +1296,8 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
           nextIndex,
           totalChunks,
           "",
-          "正在上传 " + relativePath,
-          "当前文件 " + relativePath + "，已完成 " + formatBytes(overall.baseBytes) + " / " + formatBytes(overall.totalBytes)
+          t.uploading + relativePath,
+          t.currentFileDone + relativePath + t.doneBytes + formatBytes(overall.baseBytes) + " / " + formatBytes(overall.totalBytes)
         );
 
         if (startData.done) {
@@ -1194,8 +1315,8 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
             index,
             totalChunks,
             "",
-            "正在上传 " + relativePath,
-            "当前文件 " + relativePath + "，分片 " + (index + 1) + " / " + totalChunks
+            t.uploading + relativePath,
+            t.currentFileChunk + relativePath + t.chunkLabel + (index + 1) + " / " + totalChunks
           );
 
           const chunkResp = await fetch("/s/" + shareCode + "/upload/chunk?upload_id=" + encodeURIComponent(startData.uploadId) + "&index=" + index, {
@@ -1204,7 +1325,7 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
             body: chunk
           });
           if (!chunkResp.ok) {
-            throw new Error(await chunkResp.text() || "上传分片失败");
+            throw new Error(await chunkResp.text() || t.chunkUploadFailed);
           }
 
           const chunkData = await chunkResp.json();
@@ -1219,8 +1340,8 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
             chunkData.nextIndex || (index + 1),
             totalChunks,
             "",
-            "正在等待服务端写入...",
-            "当前文件 " + relativePath + "，已完成 " + formatBytes(overall.baseBytes) + " / " + formatBytes(overall.totalBytes)
+            t.waitServer,
+            t.currentFileDone + relativePath + t.doneBytes + formatBytes(overall.baseBytes) + " / " + formatBytes(overall.totalBytes)
           );
         }
       };
@@ -1228,11 +1349,11 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       const runUpload = async (entries) => {
         const password = passwordInput.value;
         if (!entries.length) {
-          updateProgress(0, 0, 0, 0, "upload-error", "请选择要上传的文件或文件夹");
+          updateProgress(0, 0, 0, 0, "upload-error", t.selectFiles);
           return;
         }
         if (!password) {
-          updateProgress(0, 0, 0, 0, "upload-error", "请输入上传密码");
+          updateProgress(0, 0, 0, 0, "upload-error", t.needPassword);
           return;
         }
 
@@ -1243,7 +1364,7 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
         setBusy(true);
 
         try {
-          updateProgress(0, overall.totalBytes, 0, 0, "", "正在准备上传...", "共 " + entries.length + " 个文件");
+          updateProgress(0, overall.totalBytes, 0, 0, "", t.preparing, t.totalFiles + entries.length + t.fileSuffix);
 
           for (let fileIndex = 0; fileIndex < entries.length; fileIndex += 1) {
             const entry = entries[fileIndex];
@@ -1253,21 +1374,21 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
               0,
               0,
               "",
-              "正在处理 " + entry.relativePath,
-              "第 " + (fileIndex + 1) + " / " + entries.length + " 个文件"
+              t.processing + entry.relativePath,
+              t.indexPrefix + (fileIndex + 1) + t.indexMid + entries.length + t.fileSuffix
             );
             await uploadOneFile(entry, overall);
           }
 
-          updateProgress(overall.totalBytes, overall.totalBytes, 0, 0, "upload-ok", "上传完成", "共上传 " + entries.length + " 个文件");
+          updateProgress(overall.totalBytes, overall.totalBytes, 0, 0, "upload-ok", t.uploadDone, t.uploadedTotal + entries.length + t.fileSuffix);
           setTimeout(() => {
             const nextURL = new URL(window.location.href);
-            nextURL.searchParams.set("success", "上传成功");
+            nextURL.searchParams.set("success", t.uploadSuccess);
             nextURL.searchParams.delete("error");
             window.location.href = nextURL.toString();
           }, 500);
         } catch (error) {
-          updateProgress(overall.baseBytes, overall.totalBytes, 0, 0, "upload-error", error instanceof Error ? error.message : "上传失败");
+          updateProgress(overall.baseBytes, overall.totalBytes, 0, 0, "upload-error", error instanceof Error ? error.message : t.uploadFailed);
           setBusy(false);
           return;
         }

@@ -152,35 +152,35 @@ func (s *shareServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if subtle.ConstantTimeCompare([]byte(r.FormValue("password")), []byte(s.config.Password)) != 1 {
-		http.Redirect(w, r, withMessage("error", "密码错误，上传已拒绝"), http.StatusSeeOther)
+		http.Redirect(w, r, withMessage("error", "Invalid password. Upload rejected."), http.StatusSeeOther)
 		return
 	}
 
 	if err := r.ParseMultipartForm(64 << 20); err != nil {
-		http.Redirect(w, r, withMessage("error", "无法解析上传请求"), http.StatusSeeOther)
+		http.Redirect(w, r, withMessage("error", "Failed to parse upload request."), http.StatusSeeOther)
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		http.Redirect(w, r, withMessage("error", "请选择要上传的文件"), http.StatusSeeOther)
+		http.Redirect(w, r, withMessage("error", "Please choose a file to upload."), http.StatusSeeOther)
 		return
 	}
 	defer file.Close()
 
 	name := filepath.Base(header.Filename)
 	if name == "." || name == "" {
-		http.Redirect(w, r, withMessage("error", "无效文件名"), http.StatusSeeOther)
+		http.Redirect(w, r, withMessage("error", "Invalid file name."), http.StatusSeeOther)
 		return
 	}
 
 	target := filepath.Join(s.config.Path, name)
 	if err := writeUploadedFile(target, file); err != nil {
-		http.Redirect(w, r, withMessage("error", "保存上传文件失败："+err.Error()), http.StatusSeeOther)
+		http.Redirect(w, r, withMessage("error", "Failed to save uploaded file: "+err.Error()), http.StatusSeeOther)
 		return
 	}
 
-	http.Redirect(w, r, withMessage("success", "上传成功"), http.StatusSeeOther)
+	http.Redirect(w, r, withMessage("success", "Upload succeeded."), http.StatusSeeOther)
 }
 
 func (s *shareServer) basePageData(r *http.Request) pageData {

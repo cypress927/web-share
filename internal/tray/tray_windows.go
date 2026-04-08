@@ -12,8 +12,10 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/getlantern/systray"
+	"golang.org/x/sys/windows"
 
 	"web-share/internal/assets"
 	"web-share/internal/clipboard"
@@ -23,6 +25,7 @@ import (
 )
 
 const trayMutexName = `Global\WebShareTraySingleton`
+const trayQuitEventName = `Global\WebShareTrayQuitEvent`
 
 func Run() error {
 	mutex, acquired, err := shell.AcquireMutex(trayMutexName)
@@ -33,6 +36,17 @@ func Run() error {
 		return nil
 	}
 	defer shell.ReleaseMutex(mutex)
+
+	quitEvent, err := createQuitEvent()
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(quitEvent)
+
+	go func() {
+		_, _ = windows.WaitForSingleObject(quitEvent, windows.INFINITE)
+		systray.Quit()
+	}()
 
 	systray.Run(onReady, func() {})
 	return nil
@@ -55,14 +69,31 @@ func EnsureStarted() error {
 	return shell.StartDetached(exePath, "tray")
 }
 
+func Restart() error {
+	_ = signalQuitEvent()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		locked, err := shell.MutexExists(trayMutexName)
+		if err != nil {
+			return err
+		}
+		if !locked {
+			break
+		}
+		time.Sleep(120 * time.Millisecond)
+	}
+	return EnsureStarted()
+}
+
 func onReady() {
+	lang := manager.SystemDefaultLanguage()
 	systray.SetIcon(assets.ShareICO)
 	systray.SetTitle("Web Share")
 	systray.SetTooltip("Web Share Manager")
 
-	openItem := systray.AddMenuItem("打开管理页面", "Open local manager page")
-	clipboardItem := systray.AddMenuItem("分享当前剪贴板", "Share current clipboard text or image")
-	quitItem := systray.AddMenuItem("退出程序", "Exit program")
+	openItem := systray.AddMenuItem(trayMessage(lang, "menu_open_manage"), "Open local manager page")
+	clipboardItem := systray.AddMenuItem(trayMessage(lang, "menu_share_clipboard"), "Share current clipboard text or image")
+	quitItem := systray.AddMenuItem(trayMessage(lang, "menu_quit"), "Exit program")
 
 	go func() {
 		for {
@@ -70,8 +101,8 @@ func onReady() {
 			case <-openItem.ClickedCh:
 				_ = shell.OpenBrowser(manager.LocalManageURL())
 			case <-clipboardItem.ClickedCh:
-				if err := shareClipboard(); err != nil {
-					_ = notify.Error("Web Share", "剪贴板分享失败："+err.Error())
+				if err := shareClipboard(lang); err != nil {
+					_ = notify.Error("Web Share", trayMessage(lang, "clipboard_failed")+err.Error())
 				}
 			case <-quitItem.ClickedCh:
 				_ = ShutdownProgram()
@@ -82,9 +113,9 @@ func onReady() {
 	}()
 }
 
-func shareClipboard() error {
+func shareClipboard(lang string) error {
 	if !manager.IsReachable() {
-		return errors.New("管理器未就绪")
+		return errors.New(trayMessage(lang, "manager_not_ready"))
 	}
 
 	snapshot, err := clipboard.CaptureSnapshot()
@@ -100,7 +131,7 @@ func shareClipboard() error {
 			}
 			created++
 		}
-		_ = notify.Info("Web Share", fmt.Sprintf("已从剪贴板添加 %d 个分享", created))
+		_ = notify.Info("Web Share", fmt.Sprintf(trayMessage(lang, "clipboard_added_n"), created))
 		return nil
 	}
 
@@ -121,7 +152,7 @@ func shareClipboard() error {
 	if name == "" {
 		name = snapshot.Name
 	}
-	_ = notify.Info("Web Share", "分享已添加："+name)
+	_ = notify.Info("Web Share", trayMessage(lang, "share_added")+name)
 	return nil
 }
 
@@ -142,7 +173,7 @@ func createShare(req manager.CreateShareRequest) (string, error) {
 		if msg := strings.TrimSpace(string(raw)); msg != "" {
 			return "", errors.New(msg)
 		}
-		return "", errors.New("创建分享失败")
+		return "", errors.New("failed to create share")
 	}
 
 	var result struct {
@@ -164,4 +195,68 @@ func ShutdownProgram() error {
 	}
 	defer resp.Body.Close()
 	return nil
+}
+
+func trayMessage(lang, key string) string {
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
+	if zh {
+		switch key {
+		case "menu_open_manage":
+			return "打开管理页面"
+		case "menu_share_clipboard":
+			return "分享当前剪贴板"
+		case "menu_quit":
+			return "退出程序"
+		case "clipboard_failed":
+			return "剪贴板分享失败："
+		case "manager_not_ready":
+			return "管理器未就绪"
+		case "clipboard_added_n":
+			return "已从剪贴板添加 %d 个分享"
+		case "share_added":
+			return "分享已添加："
+		}
+	}
+	switch key {
+	case "menu_open_manage":
+		return "Open Manager"
+	case "menu_share_clipboard":
+		return "Share Clipboard"
+	case "menu_quit":
+		return "Exit Program"
+	case "clipboard_failed":
+		return "Clipboard share failed: "
+	case "manager_not_ready":
+		return "Manager is not ready"
+	case "clipboard_added_n":
+		return "Added %d shares from clipboard"
+	case "share_added":
+		return "Share added: "
+	default:
+		return ""
+	}
+}
+
+func createQuitEvent() (windows.Handle, error) {
+	ptr, err := windows.UTF16PtrFromString(trayQuitEventName)
+	if err != nil {
+		return 0, err
+	}
+	return windows.CreateEvent(nil, 0, 0, ptr)
+}
+
+func signalQuitEvent() error {
+	ptr, err := windows.UTF16PtrFromString(trayQuitEventName)
+	if err != nil {
+		return err
+	}
+	handle, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, ptr)
+	if err != nil {
+		if err == windows.ERROR_FILE_NOT_FOUND {
+			return nil
+		}
+		return err
+	}
+	defer windows.CloseHandle(handle)
+	return windows.SetEvent(handle)
 }

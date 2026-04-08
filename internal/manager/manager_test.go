@@ -424,7 +424,7 @@ func TestRenderSharePageShowsUnavailableWhenRootMissing(t *testing.T) {
 		uploads: make(map[string]*uploadSession),
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/s/abcd", nil)
+	req := httptest.NewRequest(http.MethodGet, "/s/abcd?lang=zh-CN", nil)
 	rec := httptest.NewRecorder()
 	mgr.handleShare(rec, req)
 
@@ -462,7 +462,7 @@ func TestServeShareRawRedirectsWhenFileMissing(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusSeeOther, rec.Code)
 	}
 	location := rec.Header().Get("Location")
-	if !strings.Contains(location, "/s/abcd?error=") || !strings.Contains(location, url.QueryEscape("文件已不存在或已被移动。")) {
+	if !strings.Contains(location, "/s/abcd?error=") || !strings.Contains(location, url.QueryEscape("The file no longer exists or has been moved.")) {
 		t.Fatalf("expected redirect to share page with error, got %q", location)
 	}
 }
@@ -486,7 +486,7 @@ func TestHomeShowsUnavailableVisibleShare(t *testing.T) {
 		uploads: make(map[string]*uploadSession),
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/?lang=zh-CN", nil)
 	rec := httptest.NewRecorder()
 	mgr.handleHome(rec, req)
 
@@ -520,7 +520,7 @@ func TestRenderSharePageRedirectsWhenSubfolderMissing(t *testing.T) {
 		uploads: make(map[string]*uploadSession),
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/s/abcd?path=gone/sub", nil)
+	req := httptest.NewRequest(http.MethodGet, "/s/abcd?lang=zh-CN&path=gone/sub", nil)
 	rec := httptest.NewRecorder()
 	mgr.handleShare(rec, req)
 
@@ -571,7 +571,7 @@ func TestUploadStartRejectsWhenCurrentDirectoryMissing(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "当前目录已不存在") {
+	if !strings.Contains(rec.Body.String(), "current directory no longer exists") {
 		t.Fatalf("expected missing directory message, got %q", rec.Body.String())
 	}
 }
@@ -649,7 +649,7 @@ func TestListVisibleSharesIncludesClipboardTextPreview(t *testing.T) {
 		uploads: make(map[string]*uploadSession),
 	}
 
-	cards := mgr.listVisibleShares()
+	cards := mgr.listVisibleShares(langZH)
 	if len(cards) != 1 {
 		t.Fatalf("expected 1 card, got %d", len(cards))
 	}
@@ -694,7 +694,7 @@ func TestListVisibleSharesIncludesFileQuickDownloadInfo(t *testing.T) {
 		uploads: make(map[string]*uploadSession),
 	}
 
-	cards := mgr.listVisibleShares()
+	cards := mgr.listVisibleShares(langZH)
 	if len(cards) != 1 {
 		t.Fatalf("expected 1 card, got %d", len(cards))
 	}
@@ -733,7 +733,7 @@ func TestListVisibleSharesIncludesTextFilePreview(t *testing.T) {
 		uploads: make(map[string]*uploadSession),
 	}
 
-	cards := mgr.listVisibleShares()
+	cards := mgr.listVisibleShares(langZH)
 	if len(cards) != 1 {
 		t.Fatalf("expected 1 card, got %d", len(cards))
 	}
@@ -890,5 +890,7 @@ func TestImageFileShareContentEndpoint(t *testing.T) {
 }
 
 func mustParseTemplates() *template.Template {
-	return template.Must(template.New("pages").Parse(homeHTML + manageHTML + shareHTML))
+	return template.Must(template.New("pages").Funcs(template.FuncMap{
+		"tr": tr,
+	}).Parse(homeHTML + manageHTML + shareHTML))
 }

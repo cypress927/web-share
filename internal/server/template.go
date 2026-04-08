@@ -167,22 +167,22 @@ const pageHTML = `<!DOCTYPE html>
     <section class="hero">
       <span class="eyebrow">{{if .IsDir}}Folder Share{{else}}File Share{{end}}</span>
       <h1>{{.SharedName}}</h1>
-      <div class="meta">路径: {{.SharedPath}}</div>
-      <div class="meta">访问地址: <a href="{{.Address}}">{{.Address}}</a></div>
+      <div class="meta">Path: {{.SharedPath}}</div>
+      <div class="meta">Address: <a href="{{.Address}}">{{.Address}}</a></div>
     </section>
     <section class="content">
       <div class="card">
-        <h2>{{if .IsDir}}内容列表{{else}}文件下载{{end}}</h2>
-        <p class="hint">{{if .IsDir}}目录默认只读。只有设置上传密码时，页面才允许上传文件到当前目录。{{else}}文件分享始终只读，可直接下载。{{end}}</p>
+        <h2>{{if .IsDir}}Contents{{else}}File Download{{end}}</h2>
+        <p class="hint">{{if .IsDir}}Folder shares are read-only by default. Upload is enabled only when a password is set.{{else}}File shares are always read-only and can be downloaded directly.{{end}}</p>
         {{if .ErrorMessage}}<div class="status error">{{.ErrorMessage}}</div>{{end}}
         {{if .SuccessMessage}}<div class="status ok">{{.SuccessMessage}}</div>{{end}}
         {{if .IsDir}}
           <table>
             <thead>
               <tr>
-                <th>名称</th>
-                <th>大小</th>
-                <th>修改时间</th>
+                <th>Name</th>
+                <th>Size</th>
+                <th>Modified</th>
               </tr>
             </thead>
             <tbody>
@@ -193,29 +193,29 @@ const pageHTML = `<!DOCTYPE html>
                 <td>{{.ModTime}}</td>
               </tr>
               {{else}}
-              <tr><td colspan="3">目录为空</td></tr>
+              <tr><td colspan="3">Folder is empty</td></tr>
               {{end}}
             </tbody>
           </table>
         {{else}}
-          <a class="download" href="/raw">下载文件</a>
+          <a class="download" href="/raw">Download File</a>
         {{end}}
       </div>
       <div class="card">
-        <h2>{{if .UploadEnabled}}上传入口{{else}}访问模式{{end}}</h2>
+        <h2>{{if .UploadEnabled}}Upload{{else}}Access Mode{{end}}</h2>
         {{if .UploadEnabled}}
-          <p class="hint">输入分享者设置的上传密码后，可把文件上传到当前共享目录根目录。</p>
+          <p class="hint">Enter the upload password to upload files to the shared root folder.</p>
           <form action="/upload" method="post" enctype="multipart/form-data">
             <input type="file" name="file" required>
-            <input type="password" name="password" placeholder="上传密码" required>
-            <button type="submit">上传文件</button>
+            <input type="password" name="password" placeholder="Upload Password" required>
+            <button type="submit">Upload File</button>
           </form>
         {{else}}
           <p class="readonly">
             {{if .IsDir}}
-            当前目录分享为只读模式。若需要上传文件，请在启动分享时设置密码。
+            This folder share is read-only. Recreate the share with a password to enable upload.
             {{else}}
-            文件分享不提供上传能力。
+            File shares do not support upload.
             {{end}}
           </p>
         {{end}}

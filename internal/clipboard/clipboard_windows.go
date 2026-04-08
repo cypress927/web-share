@@ -28,7 +28,7 @@ type Snapshot struct {
 func CaptureSnapshot() (*Snapshot, error) {
 	if paths, err := captureFiles(); err == nil && len(paths) > 0 {
 		return &Snapshot{
-			Name:  "剪贴板文件",
+			Name:  "Clipboard Files",
 			Paths: paths,
 		}, nil
 	}
@@ -42,7 +42,7 @@ func CaptureSnapshot() (*Snapshot, error) {
 		return nil, err
 	}
 	if strings.TrimSpace(text) == "" {
-		return nil, errors.New("剪贴板中没有可分享的文本或图片")
+		return nil, errors.New("clipboard has no shareable text or image")
 	}
 
 	return &Snapshot{
@@ -56,7 +56,7 @@ func captureFiles() ([]string, error) {
 	script := "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; $items = Get-Clipboard -Format FileDropList -ErrorAction Stop; if ($null -eq $items -or $items.Count -eq 0) { exit 2 }; $items | ForEach-Object { $_.ToString() }"
 	out, err := runHiddenPowerShell(script)
 	if err != nil {
-		return nil, errors.New("读取剪贴板文件失败")
+		return nil, errors.New("failed to read clipboard files")
 	}
 
 	lines := strings.Split(strings.ReplaceAll(string(out), "\r\n", "\n"), "\n")
@@ -69,7 +69,7 @@ func captureFiles() ([]string, error) {
 		paths = append(paths, trimmed)
 	}
 	if len(paths) == 0 {
-		return nil, errors.New("剪贴板中没有文件")
+		return nil, errors.New("clipboard has no files")
 	}
 	return paths, nil
 }
@@ -78,7 +78,7 @@ func captureText() (string, error) {
 	script := "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; Get-Clipboard -Raw"
 	out, err := runHiddenPowerShell(script)
 	if err != nil {
-		return "", errors.New("读取剪贴板文本失败")
+		return "", errors.New("failed to read clipboard text")
 	}
 	return strings.ReplaceAll(string(out), "\r\n", "\n"), nil
 }
@@ -87,15 +87,15 @@ func captureImage() (*Snapshot, error) {
 	script := "$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; $img = [Windows.Forms.Clipboard]::GetImage(); if ($null -eq $img) { exit 2 }; $ms = New-Object System.IO.MemoryStream; $img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png); [Convert]::ToBase64String($ms.ToArray())"
 	out, err := runHiddenPowerShell(script)
 	if err != nil {
-		return nil, errors.New("读取剪贴板图片失败")
+		return nil, errors.New("failed to read clipboard image")
 	}
 	raw := strings.TrimSpace(string(out))
 	if raw == "" {
-		return nil, errors.New("剪贴板中没有图片")
+		return nil, errors.New("clipboard has no image")
 	}
 	data, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil || len(data) == 0 {
-		return nil, errors.New("解析剪贴板图片失败")
+		return nil, errors.New("failed to parse clipboard image")
 	}
 
 	return &Snapshot{
@@ -118,7 +118,7 @@ func runHiddenPowerShell(script string) ([]byte, error) {
 func makeClipboardTextTitle(text string) string {
 	clean := strings.ReplaceAll(strings.TrimSpace(text), "\r\n", "\n")
 	if clean == "" {
-		return "剪贴板文本"
+		return "Clipboard Text"
 	}
 
 	first := clean
@@ -135,10 +135,10 @@ func makeClipboardTextTitle(text string) string {
 	if len(runes) > maxRunes {
 		first = string(runes[:maxRunes]) + "..."
 	}
-	return "文本: " + first
+	return "Text: " + first
 }
 
 func makeClipboardImageTitle(_ []byte) string {
 	now := time.Now().Format("2006-01-02 15:04")
-	return "图片: " + now
+	return "Image: " + now
 }

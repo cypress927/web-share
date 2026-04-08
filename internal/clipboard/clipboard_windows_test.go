@@ -8,18 +8,18 @@ import (
 )
 
 func TestMakeClipboardTextTitle(t *testing.T) {
-	title := makeClipboardTextTitle("这是第一行\n这是第二行")
-	if !strings.HasPrefix(title, "文本: ") {
+	title := makeClipboardTextTitle("This is line one\nThis is line two")
+	if !strings.HasPrefix(title, "Text: ") {
 		t.Fatalf("unexpected title prefix: %q", title)
 	}
-	if !strings.Contains(title, "这是第一行") {
+	if !strings.Contains(title, "This is line one") {
 		t.Fatalf("unexpected text title: %q", title)
 	}
 }
 
 func TestMakeClipboardImageTitle(t *testing.T) {
 	title := makeClipboardImageTitle(nil)
-	if !strings.HasPrefix(title, "图片: ") {
+	if !strings.HasPrefix(title, "Image: ") {
 		t.Fatalf("unexpected image title prefix: %q", title)
 	}
 }

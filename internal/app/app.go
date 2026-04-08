@@ -30,7 +30,11 @@ func Run() error {
 	case "share", "enqueue":
 		return runEnqueue(os.Args[2:])
 	case "run-manager":
-		return manager.Run(manager.DefaultConfig())
+		cfg := manager.DefaultConfig()
+		if runtime.GOOS == "windows" {
+			cfg.ApplySystemLanguage = applySystemLanguage
+		}
+		return manager.Run(cfg)
 	case "tray":
 		if runtime.GOOS != "windows" {
 			return errors.New("tray mode is only supported on Windows")
@@ -73,27 +77,30 @@ func runEnqueue(args []string) error {
 	}
 
 	if runtime.GOOS == "windows" {
+		lang := manager.SystemDefaultLanguage()
 		if manager.IsReachable() {
-			_ = notify.Info("Web Share", "正在添加分享...")
+			_ = notify.Info("Web Share", appMessage(lang, "adding_share"))
 		} else {
-			_ = notify.Info("Web Share", "正在启动 Web Share...")
+			_ = notify.Info("Web Share", appMessage(lang, "starting"))
 		}
 	}
 
 	managerStarted, err := ensureManager()
 	if err != nil {
 		if runtime.GOOS == "windows" {
-			_ = notify.Error("Web Share", "启动失败："+err.Error())
+			lang := manager.SystemDefaultLanguage()
+			_ = notify.Error("Web Share", appMessage(lang, "start_failed")+err.Error())
 		}
 		return err
 	}
 
 	if runtime.GOOS == "windows" {
+		lang := manager.SystemDefaultLanguage()
 		if err := tray.EnsureStarted(); err != nil {
-			_ = notify.Error("Web Share", "托盘启动失败："+err.Error())
+			_ = notify.Error("Web Share", appMessage(lang, "tray_start_failed")+err.Error())
 		}
 		if managerStarted {
-			_ = notify.Info("Web Share", "Web Share 已启动")
+			_ = notify.Info("Web Share", appMessage(lang, "started"))
 		}
 	}
 
@@ -114,16 +121,18 @@ func runEnqueue(args []string) error {
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if runtime.GOOS == "windows" {
+			lang := manager.SystemDefaultLanguage()
 			reason := strings.TrimSpace(string(body))
 			if reason == "" {
 				reason = resp.Status
 			}
-			_ = notify.Error("Web Share", "分享添加失败："+reason)
+			_ = notify.Error("Web Share", appMessage(lang, "add_failed")+reason)
 		}
 		return fmt.Errorf("enqueue share failed: %s", bytes.TrimSpace(body))
 	}
 
 	if runtime.GOOS == "windows" {
+		lang := manager.SystemDefaultLanguage()
 		var result struct {
 			Name string `json:"name"`
 		}
@@ -132,7 +141,7 @@ func runEnqueue(args []string) error {
 		if shareName == "" {
 			shareName = filepath.Base(target)
 		}
-		_ = notify.Info("Web Share", "分享已添加："+shareName)
+		_ = notify.Info("Web Share", appMessage(lang, "added")+shareName)
 	}
 
 	return nil
@@ -168,12 +177,12 @@ func runInstallContextMenu(args []string) error {
 		return errors.New("context menu installation is only supported on Windows")
 	}
 
-	exePath, err := resolveExecutableArg(args)
+	exePath, lang, err := resolveExecutableArg(args)
 	if err != nil {
 		return err
 	}
 
-	return shell.InstallContextMenu(exePath)
+	return shell.InstallContextMenuWithLanguage(exePath, lang)
 }
 
 func runUninstallContextMenu() error {
@@ -184,25 +193,27 @@ func runUninstallContextMenu() error {
 	return shell.UninstallContextMenu()
 }
 
-func resolveExecutableArg(args []string) (string, error) {
+func resolveExecutableArg(args []string) (string, string, error) {
 	fs := flag.NewFlagSet("exe", flag.ContinueOnError)
 	exe := fs.String("exe", "", "Path to web-share.exe")
+	defaultLang := manager.SystemDefaultLanguage()
+	lang := fs.String("lang", defaultLang, "Language for context menu labels (en-US or zh-CN)")
 	if err := fs.Parse(args); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	exePath := *exe
 	if exePath == "" {
 		currentExe, err := os.Executable()
 		if err != nil {
-			return "", fmt.Errorf("resolve executable: %w", err)
+			return "", "", fmt.Errorf("resolve executable: %w", err)
 		}
 		exePath = currentExe
 	}
 
 	exePath, err := filepath.Abs(exePath)
 	if err != nil {
-		return "", fmt.Errorf("resolve executable: %w", err)
+		return "", "", fmt.Errorf("resolve executable: %w", err)
 	}
 
 	if filepath.Ext(exePath) == "" {
@@ -210,10 +221,60 @@ func resolveExecutableArg(args []string) (string, error) {
 	}
 
 	if _, err := os.Stat(exePath); err != nil {
-		return "", fmt.Errorf("stat executable: %w", err)
+		return "", "", fmt.Errorf("stat executable: %w", err)
 	}
 
-	return exePath, nil
+	return exePath, *lang, nil
+}
+
+func applySystemLanguage(lang string) error {
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve executable: %w", err)
+	}
+	if err := shell.InstallContextMenuWithLanguage(exePath, lang); err != nil {
+		return err
+	}
+	return tray.Restart()
+}
+
+func appMessage(lang, key string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh") {
+		switch key {
+		case "adding_share":
+			return "正在添加分享..."
+		case "starting":
+			return "正在启动 Web Share..."
+		case "start_failed":
+			return "启动失败："
+		case "tray_start_failed":
+			return "托盘启动失败："
+		case "started":
+			return "Web Share 已启动"
+		case "add_failed":
+			return "分享添加失败："
+		case "added":
+			return "分享已添加："
+		}
+	}
+	switch key {
+	case "adding_share":
+		return "Adding share..."
+	case "starting":
+		return "Starting Web Share..."
+	case "start_failed":
+		return "Startup failed: "
+	case "tray_start_failed":
+		return "Tray startup failed: "
+	case "started":
+		return "Web Share started"
+	case "add_failed":
+		return "Failed to add share: "
+	case "added":
+		return "Share added: "
+	default:
+		return ""
+	}
 }
 
 func printUsage() {
@@ -224,7 +285,7 @@ Usage:
   web-share share [-password secret] <path>
   web-share tray
   web-share run-manager
-  web-share install-context-menu [-exe C:\path\to\web-share.exe]
+  web-share install-context-menu [-exe C:\path\to\web-share.exe] [-lang en-US|zh-CN]
   web-share uninstall-context-menu
 
 Notes:

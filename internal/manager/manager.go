@@ -44,9 +44,10 @@ const (
 )
 
 type Config struct {
-	BindHost string
-	Port     int
-	DBPath   string
+	BindHost            string
+	Port                int
+	DBPath              string
+	ApplySystemLanguage func(lang string) error
 }
 
 type Manager struct {
@@ -56,6 +57,7 @@ type Manager struct {
 
 	mu          sync.RWMutex
 	store       ShareStore
+	settings    SettingsStore
 	shares      map[string]*Share
 	legacyStore ShareStore
 	uploads     map[string]*uploadSession
@@ -88,10 +90,14 @@ type CreateShareRequest struct {
 }
 
 type managePageData struct {
-	Title      string
-	PublicURL  string
-	VisibleURL string
-	Shares     []manageShareCard
+	Title       string
+	PublicURL   string
+	VisibleURL  string
+	Shares      []manageShareCard
+	CurrentLang string
+	LangZHURL   string
+	LangENURL   string
+	DefaultLang string
 }
 
 type manageShareCard struct {
@@ -119,6 +125,9 @@ type homePageData struct {
 	Title         string
 	VisibleShares []publicShareCard
 	ErrorMessage  string
+	CurrentLang   string
+	LangZHURL     string
+	LangENURL     string
 }
 
 type publicShareCard struct {
@@ -163,6 +172,9 @@ type sharePageData struct {
 	TextContent    string
 	PreviewKind    string
 	PreviewText    string
+	CurrentLang    string
+	LangZHURL      string
+	LangENURL      string
 }
 
 type dirItem struct {
@@ -217,16 +229,27 @@ func DefaultConfig() Config {
 }
 
 func Run(cfg Config) error {
-	store, err := openShareStore(cfg.DBPath)
+	dbPath, err := resolveDBPath(cfg.DBPath)
+	if err != nil {
+		return err
+	}
+	store, err := openShareStore(dbPath)
+	if err != nil {
+		return err
+	}
+	settings, err := openSettingsStore(dbPath)
 	if err != nil {
 		return err
 	}
 
 	mgr := &Manager{
-		cfg:       cfg,
-		templates: template.Must(template.New("pages").Parse(homeHTML + manageHTML + shareHTML)),
-		store:     store,
-		uploads:   make(map[string]*uploadSession),
+		cfg: cfg,
+		templates: template.Must(template.New("pages").Funcs(template.FuncMap{
+			"tr": tr,
+		}).Parse(homeHTML + manageHTML + shareHTML)),
+		store:    store,
+		settings: settings,
+		uploads:  make(map[string]*uploadSession),
 	}
 
 	mux := http.NewServeMux()
@@ -236,6 +259,7 @@ func Run(cfg Config) error {
 	mux.HandleFunc("/api/shares", mgr.handleCreateShare)
 	mux.HandleFunc("/api/shares/", mgr.handleShareAPI)
 	mux.HandleFunc("/manage", mgr.handleManage)
+	mux.HandleFunc("/manage/settings/language", mgr.handleManageLanguageSetting)
 	mux.HandleFunc("/manage/shares/", mgr.handleManageShareAction)
 	mux.HandleFunc("/s/", mgr.handleShare)
 
@@ -248,18 +272,62 @@ func Run(cfg Config) error {
 }
 
 func openShareStore(path string) (ShareStore, error) {
+	return newSQLiteShareStore(path)
+}
+
+func openSettingsStore(path string) (SettingsStore, error) {
+	return newSQLiteSettingsStore(path)
+}
+
+func resolveDBPath(path string) (string, error) {
 	dbPath := strings.TrimSpace(path)
 	if dbPath == "" {
 		cacheDir, err := os.UserCacheDir()
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 		dbPath = filepath.Join(cacheDir, "WebShare", "web-share.db")
 	}
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		return nil, err
+		return "", err
 	}
-	return newSQLiteShareStore(dbPath)
+	return dbPath, nil
+}
+
+func (m *Manager) settingsStore() SettingsStore {
+	if m.settings != nil {
+		return m.settings
+	}
+	m.settings = newMemorySettingsStore(langEN)
+	return m.settings
+}
+
+func (m *Manager) currentLanguage(w http.ResponseWriter, r *http.Request) string {
+	defaultLang, err := m.settingsStore().GetDefaultLanguage()
+	if err != nil {
+		defaultLang = langEN
+	}
+	lang := resolveLanguage(r, defaultLang)
+	if queryLang := normalizeLanguage(r.URL.Query().Get("lang")); isSupportedLanguage(queryLang) {
+		setLanguageCookie(w, queryLang)
+	}
+	return lang
+}
+
+func (m *Manager) defaultLanguage() string {
+	lang, err := m.settingsStore().GetDefaultLanguage()
+	if err != nil {
+		return langEN
+	}
+	lang = normalizeLanguage(lang)
+	if !isSupportedLanguage(lang) {
+		return langEN
+	}
+	return lang
+}
+
+func (m *Manager) languageLinks(r *http.Request) (string, string) {
+	return withLanguageInURL(r, langZH), withLanguageInURL(r, langEN)
 }
 
 func LocalAPI(path string) string {
@@ -296,15 +364,20 @@ func (m *Manager) handleHome(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	currentLang := m.currentLanguage(w, r)
+	langZHURL, langENURL := m.languageLinks(r)
 
 	code := strings.TrimSpace(r.URL.Query().Get("code"))
 	if code != "" {
 		share := m.getShareByCode(code)
 		if share == nil {
 			data := homePageData{
-				Title:         "Web Share",
-				VisibleShares: m.listVisibleShares(),
-				ErrorMessage:  "分享码不存在",
+				Title:         tr(currentLang, "site.brand"),
+				VisibleShares: m.listVisibleShares(currentLang),
+				ErrorMessage:  tr(currentLang, "home.code_not_found"),
+				CurrentLang:   currentLang,
+				LangZHURL:     langZHURL,
+				LangENURL:     langENURL,
 			}
 			if err := m.templates.ExecuteTemplate(w, "home", data); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -317,8 +390,11 @@ func (m *Manager) handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := homePageData{
-		Title:         "Web Share",
-		VisibleShares: m.listVisibleShares(),
+		Title:         tr(currentLang, "site.brand"),
+		VisibleShares: m.listVisibleShares(currentLang),
+		CurrentLang:   currentLang,
+		LangZHURL:     langZHURL,
+		LangENURL:     langENURL,
 	}
 	if err := m.templates.ExecuteTemplate(w, "home", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -410,6 +486,9 @@ func (m *Manager) handleManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	currentLang := m.currentLanguage(w, r)
+	langZHURL, langENURL := m.languageLinks(r)
+	defaultLang, _ := m.settingsStore().GetDefaultLanguage()
 
 	host := "127.0.0.1"
 	if r.Host != "" {
@@ -417,15 +496,51 @@ func (m *Manager) handleManage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := managePageData{
-		Title:      "Web Share Manager",
-		PublicURL:  fmt.Sprintf("http://%s/", host),
-		VisibleURL: fmt.Sprintf("http://%s/", host),
-		Shares:     m.listManageCards(),
+		Title:       "Web Share Manager",
+		PublicURL:   fmt.Sprintf("http://%s/", host),
+		VisibleURL:  fmt.Sprintf("http://%s/", host),
+		Shares:      m.listManageCards(currentLang),
+		CurrentLang: currentLang,
+		LangZHURL:   langZHURL,
+		LangENURL:   langENURL,
+		DefaultLang: defaultLang,
 	}
 
 	if err := m.templates.ExecuteTemplate(w, "manage", data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func (m *Manager) handleManageLanguageSetting(w http.ResponseWriter, r *http.Request) {
+	if !isLocalRequest(r.RemoteAddr) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	lang := normalizeLanguage(r.FormValue("default_lang"))
+	if !isSupportedLanguage(lang) {
+		http.Error(w, "unsupported language", http.StatusBadRequest)
+		return
+	}
+	if err := m.settingsStore().SetDefaultLanguage(lang); err != nil {
+		http.Error(w, "save language failed", http.StatusInternalServerError)
+		return
+	}
+	if m.cfg.ApplySystemLanguage != nil {
+		if err := m.cfg.ApplySystemLanguage(lang); err != nil {
+			http.Error(w, "apply system language failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	setLanguageCookie(w, lang)
+	http.Redirect(w, r, "/manage?lang="+url.QueryEscape(lang), http.StatusSeeOther)
 }
 
 func (m *Manager) handleManageShareAction(w http.ResponseWriter, r *http.Request) {
@@ -513,7 +628,7 @@ func (m *Manager) createShare(req CreateShareRequest) (*Share, error) {
 
 		name := strings.TrimSpace(req.Name)
 		if name == "" {
-			name = "剪贴板文本"
+			name = tr(m.defaultLanguage(), "share.default_clipboard_text_name")
 		}
 		name = m.allocateUniqueName(name, "")
 
@@ -553,7 +668,7 @@ func (m *Manager) createShare(req CreateShareRequest) (*Share, error) {
 
 		name := strings.TrimSpace(req.Name)
 		if name == "" {
-			name = "剪贴板图片"
+			name = tr(m.defaultLanguage(), "share.default_clipboard_image_name")
 		}
 		name = m.allocateUniqueName(name, "")
 
@@ -654,7 +769,7 @@ func (m *Manager) getShareByCode(code string) *Share {
 	return share
 }
 
-func (m *Manager) listVisibleShares() []publicShareCard {
+func (m *Manager) listVisibleShares(lang string) []publicShareCard {
 	allShares, err := m.shareStore().List()
 	if err != nil {
 		return nil
@@ -671,21 +786,21 @@ func (m *Manager) listVisibleShares() []publicShareCard {
 			Code: share.Code,
 			URL:  "/s/" + share.Code,
 		}
-		card.Type = shareTypeLabel(share)
+		card.Type = shareTypeLabel(share, lang)
 		if isPathBackedShare(share) {
 			info, err := os.Stat(share.Path)
 			if err != nil {
 				card.Unavailable = true
-				card.Status = "已失效"
+				card.Status = tr(lang, "status.unavailable")
 			} else {
-				card.Status = "可访问"
+				card.Status = tr(lang, "status.available")
 				if !share.IsDir {
 					card.FileName = filepath.Base(share.Path)
 					card.FileSize = formatSize(info.Size())
 				}
 			}
 		} else {
-			card.Status = "可访问"
+			card.Status = tr(lang, "status.available")
 		}
 		kind, previewText := buildSharePreview(share, cardPreviewTextLimit)
 		if kind == "text" {
@@ -703,9 +818,9 @@ func (m *Manager) listVisibleShares() []publicShareCard {
 		if isPathBackedShare(share) && card.Status == "" {
 			if _, err := os.Stat(share.Path); err != nil {
 				card.Unavailable = true
-				card.Status = "已失效"
+				card.Status = tr(lang, "status.unavailable")
 			} else {
-				card.Status = "可访问"
+				card.Status = tr(lang, "status.available")
 			}
 		}
 		shares = append(shares, card)
@@ -728,7 +843,7 @@ func truncateText(input string, maxRunes int) string {
 	return string(runes[:maxRunes]) + "..."
 }
 
-func (m *Manager) listManageCards() []manageShareCard {
+func (m *Manager) listManageCards(lang string) []manageShareCard {
 	allShares, err := m.shareStore().List()
 	if err != nil {
 		return nil
@@ -751,7 +866,7 @@ func (m *Manager) listManageCards() []manageShareCard {
 			VisibleChecked: share.Visible,
 		}
 		if !isPathBackedShare(share) {
-			card.Path = "Clipboard Snapshot"
+			card.Path = tr(lang, "manage.path_clipboard_snapshot")
 		}
 		kind, previewText := buildSharePreview(share, managePreviewTextLimit)
 		if kind == "text" {
@@ -759,16 +874,16 @@ func (m *Manager) listManageCards() []manageShareCard {
 		} else if kind == "image" {
 			card.PreviewImage = fmt.Sprintf("/s/%s/content", share.Code)
 		}
-		card.Type = shareTypeLabel(share)
+		card.Type = shareTypeLabel(share, lang)
 		if share.IsDir && share.Password != "" {
-			card.Mode = "上传已启用"
+			card.Mode = tr(lang, "manage.mode_upload_enabled")
 		} else {
-			card.Mode = "只读"
+			card.Mode = tr(lang, "manage.mode_readonly")
 		}
 		if share.Visible {
-			card.Visibility = "首页可见"
+			card.Visibility = tr(lang, "manage.visibility_public")
 		} else {
-			card.Visibility = "首页隐藏"
+			card.Visibility = tr(lang, "manage.visibility_hidden")
 		}
 		for _, ip := range localIPs {
 			card.NetworkLinks = append(card.NetworkLinks, fmt.Sprintf("http://%s:%d/s/%s", ip, m.cfg.Port, share.Code))
@@ -788,14 +903,17 @@ func (m *Manager) listManageCards() []manageShareCard {
 }
 
 func (m *Manager) renderSharePage(w http.ResponseWriter, r *http.Request, share *Share) {
+	currentLang := m.currentLanguage(w, r)
+	langZHURL, langENURL := m.languageLinks(r)
+
 	switch share.Kind {
 	case shareKindClipboardText:
 		data := sharePageData{
-			Title:          "Web Share",
+			Title:          tr(currentLang, "site.brand"),
 			ShareCode:      share.Code,
 			SharedName:     share.Name,
 			ShareKind:      share.Kind,
-			ShareTypeLabel: shareTypeLabel(share),
+			ShareTypeLabel: shareTypeLabel(share, currentLang),
 			IsDir:          false,
 			UploadEnabled:  false,
 			Address:        fmt.Sprintf("http://%s%s", r.Host, browseURL(share.Code, "")),
@@ -804,6 +922,9 @@ func (m *Manager) renderSharePage(w http.ResponseWriter, r *http.Request, share 
 			TextContent:    share.TextContent,
 			DownloadURL:    fmt.Sprintf("/s/%s/raw", share.Code),
 			ChunkSize:      defaultUploadChunkSize,
+			CurrentLang:    currentLang,
+			LangZHURL:      langZHURL,
+			LangENURL:      langENURL,
 		}
 		if err := m.templates.ExecuteTemplate(w, "share", data); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -811,11 +932,11 @@ func (m *Manager) renderSharePage(w http.ResponseWriter, r *http.Request, share 
 		return
 	case shareKindClipboardImage:
 		data := sharePageData{
-			Title:          "Web Share",
+			Title:          tr(currentLang, "site.brand"),
 			ShareCode:      share.Code,
 			SharedName:     share.Name,
 			ShareKind:      share.Kind,
-			ShareTypeLabel: shareTypeLabel(share),
+			ShareTypeLabel: shareTypeLabel(share, currentLang),
 			IsDir:          false,
 			UploadEnabled:  false,
 			Address:        fmt.Sprintf("http://%s%s", r.Host, browseURL(share.Code, "")),
@@ -824,6 +945,9 @@ func (m *Manager) renderSharePage(w http.ResponseWriter, r *http.Request, share 
 			DownloadURL:    fmt.Sprintf("/s/%s/raw", share.Code),
 			ContentURL:     fmt.Sprintf("/s/%s/content", share.Code),
 			ChunkSize:      defaultUploadChunkSize,
+			CurrentLang:    currentLang,
+			LangZHURL:      langZHURL,
+			LangENURL:      langENURL,
 		}
 		if err := m.templates.ExecuteTemplate(w, "share", data); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -835,17 +959,20 @@ func (m *Manager) renderSharePage(w http.ResponseWriter, r *http.Request, share 
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			data := sharePageData{
-				Title:          "Web Share",
+				Title:          tr(currentLang, "site.brand"),
 				ShareCode:      share.Code,
 				SharedName:     share.Name,
 				ShareKind:      share.Kind,
-				ShareTypeLabel: shareTypeLabel(share),
+				ShareTypeLabel: shareTypeLabel(share, currentLang),
 				SharedPath:     share.Path,
 				IsDir:          share.IsDir,
 				Address:        fmt.Sprintf("http://%s%s", r.Host, browseURL(share.Code, "")),
 				ChunkSize:      defaultUploadChunkSize,
 				Unavailable:    true,
-				ErrorMessage:   "该分享对应的文件或文件夹已不存在，可能已被移动或删除。",
+				ErrorMessage:   tr(currentLang, "share.error_root_missing"),
+				CurrentLang:    currentLang,
+				LangZHURL:      langZHURL,
+				LangENURL:      langENURL,
 			}
 			if err := m.templates.ExecuteTemplate(w, "share", data); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -863,11 +990,11 @@ func (m *Manager) renderSharePage(w http.ResponseWriter, r *http.Request, share 
 	if !share.IsDir {
 		kind, previewText := buildSharePreview(share, sharePreviewTextLimit)
 		data := sharePageData{
-			Title:          "Web Share",
+			Title:          tr(currentLang, "site.brand"),
 			ShareCode:      share.Code,
 			SharedName:     share.Name,
 			ShareKind:      share.Kind,
-			ShareTypeLabel: shareTypeLabel(share),
+			ShareTypeLabel: shareTypeLabel(share, currentLang),
 			SharedPath:     share.Path,
 			IsDir:          false,
 			UploadEnabled:  false,
@@ -879,6 +1006,9 @@ func (m *Manager) renderSharePage(w http.ResponseWriter, r *http.Request, share 
 			PreviewKind:    kind,
 			PreviewText:    previewText,
 			ChunkSize:      defaultUploadChunkSize,
+			CurrentLang:    currentLang,
+			LangZHURL:      langZHURL,
+			LangENURL:      langENURL,
 		}
 		if err := m.templates.ExecuteTemplate(w, "share", data); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -895,7 +1025,7 @@ func (m *Manager) renderSharePage(w http.ResponseWriter, r *http.Request, share 
 	info, err := os.Stat(currentDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			http.Redirect(w, r, withShareMessageAt(share.Code, parentPathOrRoot(currentPath), "error", "当前目录已不存在，可能已被移动或删除。"), http.StatusSeeOther)
+			http.Redirect(w, r, withShareMessageAt(share.Code, parentPathOrRoot(currentPath), "error", tr(currentLang, "share.error_current_dir_missing")), http.StatusSeeOther)
 			return
 		}
 		http.Error(w, "failed to inspect current path", http.StatusInternalServerError)
@@ -907,23 +1037,26 @@ func (m *Manager) renderSharePage(w http.ResponseWriter, r *http.Request, share 
 	}
 
 	data := sharePageData{
-		Title:          "Web Share",
+		Title:          tr(currentLang, "site.brand"),
 		ShareCode:      share.Code,
 		SharedName:     share.Name,
 		ShareKind:      share.Kind,
-		ShareTypeLabel: shareTypeLabel(share),
+		ShareTypeLabel: shareTypeLabel(share, currentLang),
 		SharedPath:     share.Path,
 		CurrentPath:    currentPath,
-		CurrentLabel:   currentPathLabel(currentPath),
+		CurrentLabel:   currentPathLabel(currentPath, currentLang),
 		ParentURL:      parentBrowseURL(share.Code, currentPath),
-		Breadcrumbs:    buildBreadcrumbs(share.Code, currentPath),
+		Breadcrumbs:    buildBreadcrumbs(share.Code, currentPath, currentLang),
 		IsDir:          share.IsDir,
 		UploadEnabled:  share.IsDir && share.Password != "",
 		Address:        fmt.Sprintf("http://%s%s", r.Host, browseURL(share.Code, currentPath)),
 		ErrorMessage:   r.URL.Query().Get("error"),
 		SuccessMessage: r.URL.Query().Get("success"),
-		Items:          listItems(share, currentPath, currentDir),
+		Items:          listItems(share, currentPath, currentDir, currentLang),
 		ChunkSize:      defaultUploadChunkSize,
+		CurrentLang:    currentLang,
+		LangZHURL:      langZHURL,
+		LangENURL:      langENURL,
 	}
 
 	if err := m.templates.ExecuteTemplate(w, "share", data); err != nil {
@@ -956,10 +1089,12 @@ func (m *Manager) serveShareRaw(w http.ResponseWriter, r *http.Request, share *S
 		info, err := os.Stat(target)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				if maybeRedirectToShareError(w, r, share.Code, parentPathOrRoot(relativePath), "文件已不存在或已被移动。") {
+				lang := m.currentLanguage(w, r)
+				missingText := tr(lang, "share.error_file_missing")
+				if maybeRedirectToShareError(w, r, share.Code, parentPathOrRoot(relativePath), missingText) {
 					return
 				}
-				http.Error(w, "文件已不存在或已被移动。", http.StatusNotFound)
+				http.Error(w, missingText, http.StatusNotFound)
 				return
 			}
 			http.Error(w, "failed to inspect file", http.StatusInternalServerError)
@@ -976,10 +1111,12 @@ func (m *Manager) serveShareRaw(w http.ResponseWriter, r *http.Request, share *S
 
 	if _, err := os.Stat(share.Path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			if maybeRedirectToShareError(w, r, share.Code, "", "文件已不存在或已被移动。") {
+			lang := m.currentLanguage(w, r)
+			missingText := tr(lang, "share.error_file_missing")
+			if maybeRedirectToShareError(w, r, share.Code, "", missingText) {
 				return
 			}
-			http.Error(w, "文件已不存在或已被移动。", http.StatusNotFound)
+			http.Error(w, missingText, http.StatusNotFound)
 			return
 		}
 		http.Error(w, "failed to inspect file", http.StatusInternalServerError)
@@ -1148,7 +1285,8 @@ func (m *Manager) serveShareArchive(w http.ResponseWriter, r *http.Request, shar
 	info, err := os.Stat(target)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			http.Redirect(w, r, withShareMessageAt(share.Code, parentPathOrRoot(relativePath), "error", "要下载的文件夹已不存在，可能已被移动或删除。"), http.StatusSeeOther)
+			lang := m.currentLanguage(w, r)
+			http.Redirect(w, r, withShareMessageAt(share.Code, parentPathOrRoot(relativePath), "error", tr(lang, "share.error_archive_dir_missing")), http.StatusSeeOther)
 			return
 		}
 		http.Error(w, "failed to inspect archive path", http.StatusInternalServerError)
@@ -1269,24 +1407,24 @@ func (m *Manager) handleUploadChunk(w http.ResponseWriter, r *http.Request, shar
 func (m *Manager) prepareUploadSession(share *Share, req uploadStartRequest) (*uploadSession, error) {
 	if info, err := os.Stat(share.Path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, errors.New("该分享对应的文件夹已不存在，无法继续上传")
+			return nil, errors.New("share root folder no longer exists")
 		}
-		return nil, fmt.Errorf("检查共享目录失败: %w", err)
+		return nil, fmt.Errorf("inspect share root failed: %w", err)
 	} else if !info.IsDir() {
-		return nil, errors.New("该分享对应的目录已失效")
+		return nil, errors.New("share root is not a directory")
 	}
 
 	currentPath, currentDir, err := resolveShareSubpath(share.Path, strings.TrimSpace(req.Path), true)
 	if err != nil {
-		return nil, errors.New("目录路径无效")
+		return nil, errors.New("invalid directory path")
 	}
 	if info, err := os.Stat(currentDir); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, errors.New("当前目录已不存在，无法继续上传")
+			return nil, errors.New("current directory no longer exists")
 		}
-		return nil, fmt.Errorf("检查当前目录失败: %w", err)
+		return nil, fmt.Errorf("inspect current directory failed: %w", err)
 	} else if !info.IsDir() {
-		return nil, errors.New("当前目录已失效")
+		return nil, errors.New("current directory is not valid")
 	}
 
 	relativePath, parentDir, target, name, err := resolveUploadTargetPath(share.Path, currentPath, req.FilePath)
@@ -1294,13 +1432,13 @@ func (m *Manager) prepareUploadSession(share *Share, req uploadStartRequest) (*u
 		return nil, err
 	}
 	if req.FileSize < 0 {
-		return nil, errors.New("无效文件大小")
+		return nil, errors.New("invalid file size")
 	}
 	if req.ChunkSize <= 0 {
-		return nil, errors.New("无效分片大小")
+		return nil, errors.New("invalid chunk size")
 	}
 	if req.TotalChunks <= 0 {
-		return nil, errors.New("无效分片数量")
+		return nil, errors.New("invalid chunk count")
 	}
 
 	expectedChunks := 1
@@ -1308,17 +1446,17 @@ func (m *Manager) prepareUploadSession(share *Share, req uploadStartRequest) (*u
 		expectedChunks = int((req.FileSize + req.ChunkSize - 1) / req.ChunkSize)
 	}
 	if expectedChunks != req.TotalChunks {
-		return nil, errors.New("分片数量与文件大小不匹配")
+		return nil, errors.New("chunk count does not match file size")
 	}
 
 	if err := os.MkdirAll(parentDir, 0o755); err != nil {
-		return nil, fmt.Errorf("创建目标目录失败: %w", err)
+		return nil, fmt.Errorf("create target directory failed: %w", err)
 	}
 
 	if _, err := os.Stat(target); err == nil {
-		return nil, errors.New("目标文件已存在")
+		return nil, errors.New("target file already exists")
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("检查目标文件失败: %w", err)
+		return nil, fmt.Errorf("inspect target file failed: %w", err)
 	}
 
 	key := uploadSessionKey(share.ID, relativePath)
@@ -1329,7 +1467,7 @@ func (m *Manager) prepareUploadSession(share *Share, req uploadStartRequest) (*u
 		existing.mu.Lock()
 		defer existing.mu.Unlock()
 		if existing.TotalSize != req.FileSize || existing.ChunkSize != req.ChunkSize || existing.TotalChunks != req.TotalChunks {
-			return nil, errors.New("同名文件已有不同上传任务进行中")
+			return nil, errors.New("a different upload session already exists for this file")
 		}
 		return existing, nil
 	}
@@ -1349,24 +1487,24 @@ func (m *Manager) prepareUploadSession(share *Share, req uploadStartRequest) (*u
 	if info, err := os.Stat(session.TempPath); err == nil {
 		if info.Size() > session.TotalSize {
 			m.mu.Unlock()
-			return nil, errors.New("上传临时文件状态无效")
+			return nil, errors.New("invalid upload temp file state")
 		}
 		if info.Size() < session.TotalSize && info.Size()%session.ChunkSize != 0 {
 			m.mu.Unlock()
-			return nil, errors.New("上传临时文件未对齐到分片边界")
+			return nil, errors.New("upload temp file is not chunk-aligned")
 		}
 		session.UploadedBytes = info.Size()
 		session.NextIndex = int(info.Size() / session.ChunkSize)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		m.mu.Unlock()
-		return nil, fmt.Errorf("检查上传临时文件失败: %w", err)
+		return nil, fmt.Errorf("inspect upload temp file failed: %w", err)
 	}
 
 	if session.TotalSize == 0 && session.UploadedBytes == 0 {
 		file, err := os.OpenFile(session.TargetPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err != nil {
 			m.mu.Unlock()
-			return nil, fmt.Errorf("创建空文件失败: %w", err)
+			return nil, fmt.Errorf("create empty file failed: %w", err)
 		}
 		_ = file.Close()
 		m.mu.Unlock()
@@ -1474,7 +1612,7 @@ func (m *Manager) touchShare(id string) {
 func (m *Manager) allocateUniqueName(baseName, ignoreID string) string {
 	baseName = strings.TrimSpace(baseName)
 	if baseName == "" {
-		baseName = "未命名分享"
+		baseName = tr(m.defaultLanguage(), "share.default_name")
 	}
 
 	name := baseName
@@ -1525,7 +1663,7 @@ func (m *Manager) codeExists(code string) bool {
 	return false
 }
 
-func listItems(share *Share, currentPath, currentDir string) []dirItem {
+func listItems(share *Share, currentPath, currentDir, lang string) []dirItem {
 	info, err := os.Stat(share.Path)
 	if err != nil {
 		return nil
@@ -1559,7 +1697,7 @@ func listItems(share *Share, currentPath, currentDir string) []dirItem {
 			IsDir:   entry.IsDir(),
 		}
 		if entry.IsDir() {
-			item.Size = "folder"
+			item.Size = tr(lang, "share.folder_size_label")
 			item.URL = browseURL(share.Code, joinRelativePath(currentPath, entry.Name()))
 			item.ArchiveURL = archiveURL(share.Code, joinRelativePath(currentPath, entry.Name()))
 		} else {
@@ -1610,19 +1748,19 @@ func serveBytesDownload(w http.ResponseWriter, r *http.Request, content []byte, 
 	http.ServeContent(w, r, downloadName, time.Time{}, bytes.NewReader(content))
 }
 
-func shareTypeLabel(share *Share) string {
+func shareTypeLabel(share *Share, lang string) string {
 	switch share.Kind {
 	case shareKindDir:
-		return "文件夹"
+		return tr(lang, "share.type.dir")
 	case shareKindClipboardText:
-		return "剪贴板文本"
+		return tr(lang, "share.type.clipboard_text")
 	case shareKindClipboardImage:
-		return "剪贴板图片"
+		return tr(lang, "share.type.clipboard_image")
 	default:
 		if share.IsDir {
-			return "文件夹"
+			return tr(lang, "share.type.dir")
 		}
-		return "文件"
+		return tr(lang, "share.type.file")
 	}
 }
 
@@ -1806,9 +1944,9 @@ func parentBrowseURL(shareCode, currentPath string) string {
 	return browseURL(shareCode, parent)
 }
 
-func buildBreadcrumbs(shareCode, currentPath string) []breadcrumbItem {
+func buildBreadcrumbs(shareCode, currentPath, lang string) []breadcrumbItem {
 	items := []breadcrumbItem{{
-		Name: "根目录",
+		Name: tr(lang, "share.root_dir"),
 		URL:  browseURL(shareCode, ""),
 	}}
 	if currentPath == "" {
@@ -1827,9 +1965,9 @@ func buildBreadcrumbs(shareCode, currentPath string) []breadcrumbItem {
 	return items
 }
 
-func currentPathLabel(currentPath string) string {
+func currentPathLabel(currentPath, lang string) string {
 	if currentPath == "" {
-		return "根目录"
+		return tr(lang, "share.root_dir")
 	}
 	return currentPath
 }
@@ -1878,17 +2016,17 @@ func resolveShareSubpath(root, requested string, allowDir bool) (string, string,
 func resolveUploadTargetPath(root, currentPath, requested string) (string, string, string, string, error) {
 	requested = strings.TrimSpace(requested)
 	if requested == "" {
-		return "", "", "", "", errors.New("无效文件名")
+		return "", "", "", "", errors.New("invalid file name")
 	}
 
 	clean := filepath.Clean(filepath.FromSlash(requested))
 	if clean == "." || filepath.IsAbs(clean) || filepath.VolumeName(clean) != "" {
-		return "", "", "", "", errors.New("无效文件名")
+		return "", "", "", "", errors.New("invalid file name")
 	}
 
 	name := filepath.Base(clean)
 	if name == "." || name == "" {
-		return "", "", "", "", errors.New("无效文件名")
+		return "", "", "", "", errors.New("invalid file name")
 	}
 
 	parentRequest := currentPath
@@ -1898,7 +2036,7 @@ func resolveUploadTargetPath(root, currentPath, requested string) (string, strin
 
 	parentRelative, parentDir, err := resolveShareSubpath(root, parentRequest, true)
 	if err != nil {
-		return "", "", "", "", errors.New("目录路径无效")
+		return "", "", "", "", errors.New("invalid directory path")
 	}
 
 	relativePath := joinRelativePath(parentRelative, name)
