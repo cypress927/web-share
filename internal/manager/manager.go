@@ -98,10 +98,12 @@ type homePageData struct {
 }
 
 type publicShareCard struct {
-	Name string
-	Code string
-	Type string
-	URL  string
+	Name        string
+	Code        string
+	Type        string
+	URL         string
+	Unavailable bool
+	Status      string
 }
 
 type sharePageData struct {
@@ -120,6 +122,7 @@ type sharePageData struct {
 	ErrorMessage   string
 	SuccessMessage string
 	ChunkSize      int64
+	Unavailable    bool
 }
 
 type dirItem struct {
@@ -514,6 +517,12 @@ func (m *Manager) listVisibleShares() []publicShareCard {
 		} else {
 			card.Type = "文件"
 		}
+		if _, err := os.Stat(share.Path); err != nil {
+			card.Unavailable = true
+			card.Status = "已失效"
+		} else {
+			card.Status = "可访问"
+		}
 		shares = append(shares, card)
 	}
 
@@ -576,6 +585,34 @@ func (m *Manager) listManageCards() []manageShareCard {
 }
 
 func (m *Manager) renderSharePage(w http.ResponseWriter, r *http.Request, share *Share) {
+	rootInfo, err := os.Stat(share.Path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			data := sharePageData{
+				Title:        "Web Share",
+				ShareCode:    share.Code,
+				SharedName:   share.Name,
+				SharedPath:   share.Path,
+				IsDir:        share.IsDir,
+				Address:      fmt.Sprintf("http://%s%s", r.Host, browseURL(share.Code, "")),
+				ChunkSize:    defaultUploadChunkSize,
+				Unavailable:  true,
+				ErrorMessage: "该分享对应的文件或文件夹已不存在，可能已被移动或删除。",
+			}
+			if err := m.templates.ExecuteTemplate(w, "share", data); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			return
+		}
+		http.Error(w, "failed to inspect shared path", http.StatusInternalServerError)
+		return
+	}
+
+	if share.IsDir && !rootInfo.IsDir() {
+		http.Error(w, "share root is not a directory", http.StatusBadRequest)
+		return
+	}
+
 	currentPath, currentDir, err := resolveShareSubpath(share.Path, r.URL.Query().Get("path"), true)
 	if err != nil {
 		http.Error(w, "invalid path", http.StatusBadRequest)
@@ -584,7 +621,11 @@ func (m *Manager) renderSharePage(w http.ResponseWriter, r *http.Request, share 
 
 	info, err := os.Stat(currentDir)
 	if err != nil {
-		http.NotFound(w, r)
+		if errors.Is(err, os.ErrNotExist) {
+			http.Redirect(w, r, withShareMessageAt(share.Code, parentPathOrRoot(currentPath), "error", "当前目录已不存在，可能已被移动或删除。"), http.StatusSeeOther)
+			return
+		}
+		http.Error(w, "failed to inspect current path", http.StatusInternalServerError)
 		return
 	}
 	if !info.IsDir() {
@@ -617,14 +658,21 @@ func (m *Manager) renderSharePage(w http.ResponseWriter, r *http.Request, share 
 
 func (m *Manager) serveShareRaw(w http.ResponseWriter, r *http.Request, share *Share) {
 	if share.IsDir {
-		_, target, err := resolveShareSubpath(share.Path, r.URL.Query().Get("path"), false)
+		relativePath, target, err := resolveShareSubpath(share.Path, r.URL.Query().Get("path"), false)
 		if err != nil {
 			http.Error(w, "invalid file path", http.StatusBadRequest)
 			return
 		}
 		info, err := os.Stat(target)
 		if err != nil {
-			http.NotFound(w, r)
+			if errors.Is(err, os.ErrNotExist) {
+				if maybeRedirectToShareError(w, r, share.Code, parentPathOrRoot(relativePath), "文件已不存在或已被移动。") {
+					return
+				}
+				http.Error(w, "文件已不存在或已被移动。", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "failed to inspect file", http.StatusInternalServerError)
 			return
 		}
 		if info.IsDir() {
@@ -633,6 +681,18 @@ func (m *Manager) serveShareRaw(w http.ResponseWriter, r *http.Request, share *S
 		}
 
 		serveFileDownload(w, r, target, info.Name())
+		return
+	}
+
+	if _, err := os.Stat(share.Path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			if maybeRedirectToShareError(w, r, share.Code, "", "文件已不存在或已被移动。") {
+				return
+			}
+			http.Error(w, "文件已不存在或已被移动。", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to inspect file", http.StatusInternalServerError)
 		return
 	}
 
@@ -653,7 +713,11 @@ func (m *Manager) serveShareArchive(w http.ResponseWriter, r *http.Request, shar
 
 	info, err := os.Stat(target)
 	if err != nil {
-		http.NotFound(w, r)
+		if errors.Is(err, os.ErrNotExist) {
+			http.Redirect(w, r, withShareMessageAt(share.Code, parentPathOrRoot(relativePath), "error", "要下载的文件夹已不存在，可能已被移动或删除。"), http.StatusSeeOther)
+			return
+		}
+		http.Error(w, "failed to inspect archive path", http.StatusInternalServerError)
 		return
 	}
 	if !info.IsDir() {
@@ -769,9 +833,26 @@ func (m *Manager) handleUploadChunk(w http.ResponseWriter, r *http.Request, shar
 }
 
 func (m *Manager) prepareUploadSession(share *Share, req uploadStartRequest) (*uploadSession, error) {
-	currentPath, _, err := resolveShareSubpath(share.Path, strings.TrimSpace(req.Path), true)
+	if info, err := os.Stat(share.Path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, errors.New("该分享对应的文件夹已不存在，无法继续上传")
+		}
+		return nil, fmt.Errorf("检查共享目录失败: %w", err)
+	} else if !info.IsDir() {
+		return nil, errors.New("该分享对应的目录已失效")
+	}
+
+	currentPath, currentDir, err := resolveShareSubpath(share.Path, strings.TrimSpace(req.Path), true)
 	if err != nil {
 		return nil, errors.New("目录路径无效")
+	}
+	if info, err := os.Stat(currentDir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, errors.New("当前目录已不存在，无法继续上传")
+		}
+		return nil, fmt.Errorf("检查当前目录失败: %w", err)
+	} else if !info.IsDir() {
+		return nil, errors.New("当前目录已失效")
 	}
 
 	relativePath, parentDir, target, name, err := resolveUploadTargetPath(share.Path, currentPath, req.FilePath)
@@ -1185,6 +1266,25 @@ func withShareMessageAt(shareCode, currentPath, key, value string) string {
 		separator = "&"
 	}
 	return base + separator + key + "=" + url.QueryEscape(value)
+}
+
+func maybeRedirectToShareError(w http.ResponseWriter, r *http.Request, shareCode, currentPath, message string) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	http.Redirect(w, r, withShareMessageAt(shareCode, currentPath, "error", message), http.StatusSeeOther)
+	return true
+}
+
+func parentPathOrRoot(currentPath string) string {
+	if currentPath == "" {
+		return ""
+	}
+	parent := filepath.ToSlash(filepath.Dir(filepath.FromSlash(currentPath)))
+	if parent == "." {
+		return ""
+	}
+	return parent
 }
 
 func browseURL(shareCode, currentPath string) string {

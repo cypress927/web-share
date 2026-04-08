@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -205,6 +206,9 @@ func TestChunkUploadRejectsUnexpectedIndex(t *testing.T) {
 
 func TestSequentialChunkUploadCreatesNestedFolders(t *testing.T) {
 	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, "photos"), 0o755); err != nil {
+		t.Fatalf("mkdir current upload dir: %v", err)
+	}
 	mgr := &Manager{
 		cfg:       DefaultConfig(),
 		templates: mustParseTemplates(),
@@ -399,6 +403,176 @@ func TestServeShareArchiveDownloadsSubfolderAsZip(t *testing.T) {
 	}
 	if got := entries["docs/nested/note.txt"]; got != "nested" {
 		t.Fatalf("expected nested file in docs archive, got %q", got)
+	}
+}
+
+func TestRenderSharePageShowsUnavailableWhenRootMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+	missingPath := filepath.Join(tmpDir, "missing.txt")
+
+	mgr := &Manager{
+		cfg:       DefaultConfig(),
+		templates: mustParseTemplates(),
+		shares: map[string]*Share{
+			"share-1": {
+				ID:   "share-1",
+				Code: "abcd",
+				Path: missingPath,
+				Name: "missing.txt",
+			},
+		},
+		uploads: make(map[string]*uploadSession),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/s/abcd", nil)
+	rec := httptest.NewRecorder()
+	mgr.handleShare(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "该分享对应的文件或文件夹已不存在") {
+		t.Fatalf("expected unavailable message, got %q", rec.Body.String())
+	}
+}
+
+func TestServeShareRawRedirectsWhenFileMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+	missingPath := filepath.Join(tmpDir, "missing.txt")
+
+	mgr := &Manager{
+		cfg:       DefaultConfig(),
+		templates: mustParseTemplates(),
+		shares: map[string]*Share{
+			"share-1": {
+				ID:   "share-1",
+				Code: "abcd",
+				Path: missingPath,
+				Name: "missing.txt",
+			},
+		},
+		uploads: make(map[string]*uploadSession),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/s/abcd/raw", nil)
+	rec := httptest.NewRecorder()
+	mgr.handleShare(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected status %d, got %d", http.StatusSeeOther, rec.Code)
+	}
+	location := rec.Header().Get("Location")
+	if !strings.Contains(location, "/s/abcd?error=") || !strings.Contains(location, url.QueryEscape("文件已不存在或已被移动。")) {
+		t.Fatalf("expected redirect to share page with error, got %q", location)
+	}
+}
+
+func TestHomeShowsUnavailableVisibleShare(t *testing.T) {
+	tmpDir := t.TempDir()
+	missingPath := filepath.Join(tmpDir, "missing.txt")
+
+	mgr := &Manager{
+		cfg:       DefaultConfig(),
+		templates: mustParseTemplates(),
+		shares: map[string]*Share{
+			"share-1": {
+				ID:      "share-1",
+				Code:    "abcd",
+				Path:    missingPath,
+				Name:    "missing.txt",
+				Visible: true,
+			},
+		},
+		uploads: make(map[string]*uploadSession),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	mgr.handleHome(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "已失效") {
+		t.Fatalf("expected unavailable marker, got %q", body)
+	}
+}
+
+func TestRenderSharePageRedirectsWhenSubfolderMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		t.Fatalf("mkdir root: %v", err)
+	}
+
+	mgr := &Manager{
+		cfg:       DefaultConfig(),
+		templates: mustParseTemplates(),
+		shares: map[string]*Share{
+			"share-1": {
+				ID:    "share-1",
+				Code:  "abcd",
+				Path:  tmpDir,
+				Name:  "folder",
+				IsDir: true,
+			},
+		},
+		uploads: make(map[string]*uploadSession),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/s/abcd?path=gone/sub", nil)
+	rec := httptest.NewRecorder()
+	mgr.handleShare(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected status %d, got %d", http.StatusSeeOther, rec.Code)
+	}
+	location := rec.Header().Get("Location")
+	if !strings.Contains(location, "/s/abcd?path=gone&error=") {
+		t.Fatalf("expected redirect back to parent with error, got %q", location)
+	}
+}
+
+func TestUploadStartRejectsWhenCurrentDirectoryMissing(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mgr := &Manager{
+		cfg:       DefaultConfig(),
+		templates: mustParseTemplates(),
+		shares: map[string]*Share{
+			"share-1": {
+				ID:       "share-1",
+				Code:     "abcd",
+				Path:     tmpDir,
+				Name:     "folder",
+				IsDir:    true,
+				Password: "123456",
+			},
+		},
+		uploads: make(map[string]*uploadSession),
+	}
+
+	startBody, err := json.Marshal(uploadStartRequest{
+		Path:        "gone",
+		Password:    "123456",
+		FilePath:    "file.txt",
+		FileSize:    4,
+		ChunkSize:   4,
+		TotalChunks: 1,
+	})
+	if err != nil {
+		t.Fatalf("marshal start request: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/s/abcd/upload/start", bytes.NewReader(startBody))
+	rec := httptest.NewRecorder()
+	mgr.handleShare(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "当前目录已不存在") {
+		t.Fatalf("expected missing directory message, got %q", rec.Body.String())
 	}
 }
 

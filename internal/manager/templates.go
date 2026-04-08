@@ -116,6 +116,10 @@ const homeHTML = `{{define "home"}}<!DOCTYPE html>
       background: rgba(255,255,255,0.84);
       border: 1px solid rgba(215,203,184,0.8);
     }
+    .share-item.unavailable {
+      background: rgba(154,43,43,0.06);
+      border-color: rgba(154,43,43,0.18);
+    }
     .share-name {
       margin: 0 0 4px;
       font-size: 18px;
@@ -134,6 +138,32 @@ const homeHTML = `{{define "home"}}<!DOCTYPE html>
       background: rgba(191,103,56,0.12);
       color: var(--warm);
       font-weight: 700;
+    }
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(15,103,107,0.12);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .status-chip.unavailable {
+      background: rgba(154,43,43,0.1);
+      color: #9a2b2b;
+    }
+    .share-meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+      align-items: center;
+    }
+    .share-link {
+      color: var(--accent);
+      font-weight: 600;
     }
     a {
       color: var(--accent);
@@ -177,13 +207,17 @@ const homeHTML = `{{define "home"}}<!DOCTYPE html>
         {{if .VisibleShares}}
         <div class="share-list">
           {{range .VisibleShares}}
-          <a class="share-item" href="{{.URL}}">
+          <div class="share-item {{if .Unavailable}}unavailable{{end}}">
             <div>
               <h3 class="share-name">{{.Name}}</h3>
               <div class="meta">{{.Type}}</div>
+              <div class="share-meta-row">
+                <span class="status-chip {{if .Unavailable}}unavailable{{end}}">{{.Status}}</span>
+                <a class="share-link" href="{{.URL}}">打开分享</a>
+              </div>
             </div>
             <span class="code-chip">分享码 {{.Code}}</span>
-          </a>
+          </div>
           {{end}}
         </div>
         {{else}}
@@ -832,7 +866,9 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
         <p class="hint">{{if .IsDir}}目录默认只读。只有设置上传密码时，页面才允许上传文件到当前目录。{{else}}文件分享始终只读，可直接下载。{{end}}</p>
         {{if .ErrorMessage}}<div class="status error">{{.ErrorMessage}}</div>{{end}}
         {{if .SuccessMessage}}<div class="status ok">{{.SuccessMessage}}</div>{{end}}
-        {{if .IsDir}}
+        {{if .Unavailable}}
+          <p class="readonly">该分享仍然存在于管理器中，但它指向的原始文件或文件夹已不存在。请联系分享者重新创建分享。</p>
+        {{else if .IsDir}}
           <div class="upload-actions">
             <a class="download" href="/s/{{.ShareCode}}/archive">下载整个分享内容</a>
           </div>
@@ -874,7 +910,9 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       </div>
       <div class="card">
         <h2>{{if .UploadEnabled}}上传入口{{else}}访问模式{{end}}</h2>
-        {{if .UploadEnabled}}
+        {{if .Unavailable}}
+          <p class="readonly">该分享当前不可用，因此不能上传或下载内容。</p>
+        {{else if .UploadEnabled}}
           <p class="hint">输入分享者设置的上传密码后，可把文件分片上传到当前目录。上传过程中会显示实时进度。</p>
           <div class="section-divider"></div>
           <form id="upload-form">
@@ -907,7 +945,7 @@ const shareHTML = `{{define "share"}}<!DOCTYPE html>
       </div>
     </section>
   </div>
-  {{if .UploadEnabled}}
+  {{if and .UploadEnabled (not .Unavailable)}}
   <script>
     (() => {
       const form = document.getElementById("upload-form");
