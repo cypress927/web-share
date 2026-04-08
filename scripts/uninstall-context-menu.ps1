@@ -16,8 +16,9 @@ try {
 
 if (-not [string]::IsNullOrWhiteSpace($resolved) -and (Test-Path -LiteralPath $resolved)) {
     & $resolved uninstall-context-menu
-    if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) {
-        throw "Uninstall context menu failed with exit code $LASTEXITCODE"
+    $exitCodeVar = Get-Variable -Name LASTEXITCODE -ErrorAction SilentlyContinue
+    if ($null -ne $exitCodeVar -and $exitCodeVar.Value -ne 0) {
+        throw "Uninstall context menu failed with exit code $($exitCodeVar.Value)"
     }
 } else {
     reg delete "HKCU\Software\Classes\*\shell\web-share" /f | Out-Null
