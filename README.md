@@ -174,6 +174,8 @@ Upload-password folder sharing uses a native Windows password prompt and does no
 
 Current built-in context-menu install/uninstall commands are handled as target-state operations. If the target state is already satisfied or an old residual config is repaired, the local settings page may show a warning instead of a hard failure.
 
+The local system settings page also provides a one-click uninstall action. It removes Windows integration, stops the local program, and then you can delete the whole program folder directly.
+
 Chinese menu:
 
 - 文件：`通过 Web 分享 > 只读分享`
@@ -447,6 +449,7 @@ go build -o .\web-share.exe .\cmd\web-share
 说明：
 
 - 内置 `install/start/uninstall` 已经改为使用注册表自启动
+- 本地系统设置页也提供了一键卸载动作。它会移除 Windows 集成项、停止本地程序，然后你就可以直接删除整个程序目录。
 - `scripts/` 目录下的旧 PowerShell 脚本仍然保留计划任务方式，作为兼容入口
 
 ### 右键菜单

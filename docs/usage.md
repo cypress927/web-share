@@ -146,6 +146,7 @@ Current system-action semantics:
 - install / start / enable actions are handled as target-state operations
 - uninstall / stop / disable actions are handled as target-state operations
 - repeated execution should not require the user to reason about partial state manually
+- the local system settings page provides a one-click uninstall action that removes integration and stops the program before you delete the folder
 
 Manager URL:
 
@@ -441,6 +442,7 @@ go build -ldflags="-H=windowsgui" -o .\web-share.exe .\cmd\web-share
 - install / start / enable 这类操作以“确保目标状态”为主
 - uninstall / stop / disable 这类操作也以“确保目标状态”为主
 - 重复执行同一动作时，页面可能返回 warning，而不是要求用户自己清理半状态
+- 本地系统设置页提供一键卸载动作，会先移除系统集成并停止程序，再删除整个目录
 
 管理页面地址：
 

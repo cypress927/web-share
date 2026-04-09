@@ -8,3 +8,6 @@ bin/
 dist/
 web-share.log
 web-share.log.*
+web-share.db
+web-share.db-shm
+web-share.db-wal
