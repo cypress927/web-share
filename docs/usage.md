@@ -25,6 +25,12 @@ It lets you share files, folders, and clipboard content over HTTP from Windows c
 - On first run, the default language follows Windows system language
 - If context menu is missing, normal launch installs it automatically
 
+Current settings-page behavior:
+
+- setup/system actions use local async requests
+- the page can show `success`, `warning`, or `error`
+- warning is used when the target state was already satisfied or an old residual state was repaired
+
 ### Build
 
 ```powershell
@@ -92,6 +98,7 @@ Note:
 
 - Built-in `install/start/uninstall` now uses registry-based auto start
 - Legacy scripts under `scripts/` still manage logon startup via Scheduled Task for compatibility
+- local system-action logs are written under `%LOCALAPPDATA%\WebShare\logs`
 
 If you want to install context menu only:
 
@@ -133,6 +140,12 @@ When you create a share from context menu:
 - Manager starts automatically if not running
 - Tray starts automatically if not running
 - Management page does not open automatically
+
+Current system-action semantics:
+
+- install / start / enable actions are handled as target-state operations
+- uninstall / stop / disable actions are handled as target-state operations
+- repeated execution should not require the user to reason about partial state manually
 
 Manager URL:
 
@@ -307,6 +320,12 @@ The unified uninstall script removes:
 - 首次启动时默认语言会跟随 Windows 系统语言
 - 如果右键菜单缺失，正常启动会自动补装
 
+当前设置页行为：
+
+- `setup` / `system` 页面通过本地异步请求执行动作
+- 页面会显示 `success / warning / error`
+- warning 常见于“目标状态本来已满足”或“旧残留已自动修复”
+
 ### 构建
 
 ```powershell
@@ -374,6 +393,7 @@ go build -ldflags="-H=windowsgui" -o .\web-share.exe .\cmd\web-share
 
 - 内置 `install/start/uninstall` 已改为使用注册表自启动
 - `scripts/` 目录下的旧脚本仍保留计划任务实现，作为兼容入口
+- 系统动作日志默认写入 `%LOCALAPPDATA%\WebShare\logs`
 
 如果只想单独安装右键菜单：
 
@@ -415,6 +435,12 @@ go build -ldflags="-H=windowsgui" -o .\web-share.exe .\cmd\web-share
 - 如果后台管理器未启动，程序会自动在后台启动它
 - 如果托盘未启动，程序也会自动在后台启动托盘
 - 不会自动打开管理页面
+
+当前系统动作语义：
+
+- install / start / enable 这类操作以“确保目标状态”为主
+- uninstall / stop / disable 这类操作也以“确保目标状态”为主
+- 重复执行同一动作时，页面可能返回 warning，而不是要求用户自己清理半状态
 
 管理页面地址：
 

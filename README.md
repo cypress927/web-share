@@ -47,6 +47,12 @@ It integrates with the Windows context menu, runs a local HTTP manager on port `
 - `enqueue` starts manager and tray automatically if they are not running
 - New shares are hidden from the public home page by default
 
+Internal structure note:
+
+- entry points live in `internal/app`, `internal/manager`, and `internal/tray`
+- system integration state is mainly orchestrated by `internal/systemstate`
+- Windows-specific implementations stay under `internal/systemstate/windows_ports_windows.go` and `internal/shell`
+
 ### Build
 
 Windows GUI build:
@@ -66,6 +72,7 @@ Note:
 - `web-share.exe` now includes built-in install/start/repair/uninstall commands
 - PowerShell scripts are still available as wrapper entry points
 - Rebuild the executable first if you are using an older binary
+- local system-action logs are written under `%LOCALAPPDATA%\WebShare\logs`
 
 ### Setup
 
@@ -165,6 +172,8 @@ English menu:
 
 Upload-password folder sharing uses a native Windows password prompt and does not rely on PowerShell or VBS popups.
 
+Current built-in context-menu install/uninstall commands are handled as target-state operations. If the target state is already satisfied or an old residual config is repaired, the local settings page may show a warning instead of a hard failure.
+
 Chinese menu:
 
 - 文件：`通过 Web 分享 > 只读分享`
@@ -244,6 +253,12 @@ The built-in uninstall command removes:
 - Running manager/tray processes
 - Generated prompt script cache
 - Optional local data under `%LOCALAPPDATA%\WebShare`
+
+Current behavior notes:
+
+- setup/system pages use local async actions with `success / warning / error` feedback
+- warning is used for already-satisfied state, repaired legacy residue, or missing old objects
+- system-action logs are kept locally for troubleshooting when a user cannot directly observe the result
 
 For the normal user flow, you can also:
 
@@ -331,6 +346,12 @@ Legacy wrapper script:
 - `enqueue` 在管理器或托盘未启动时会自动拉起它们
 - 新建分享默认不会显示在公开首页
 
+内部结构说明：
+
+- 入口层主要在 `internal/app`、`internal/manager`、`internal/tray`
+- 系统集成状态的统一编排层在 `internal/systemstate`
+- Windows 具体实现仍在 `internal/systemstate/windows_ports_windows.go` 与 `internal/shell`
+
 ### 构建
 
 无控制台窗口版本：
@@ -350,6 +371,7 @@ go build -o .\web-share.exe .\cmd\web-share
 - `web-share.exe` 现在内置了 `install/start/repair/uninstall` 命令
 - PowerShell 脚本仍然保留，用作兼容包装入口
 - 如果本地是旧版可执行文件，请先重新编译
+- 系统动作日志默认写入 `%LOCALAPPDATA%\WebShare\logs`
 
 ### 初始化安装
 
@@ -455,6 +477,8 @@ go build -o .\web-share.exe .\cmd\web-share
 
 带上传密码的文件夹分享现在使用原生 Windows 密码输入框，不依赖 PowerShell 或 VBS 弹窗。
 
+当前内置右键菜单安装与卸载已经按“目标状态”处理。如果对象本来已满足目标状态，或检测到旧残留后自动修复，本地设置页可能给出 warning，而不是直接报硬失败。
+
 卸载：
 
 ```powershell
@@ -528,6 +552,12 @@ go build -o .\web-share.exe .\cmd\web-share
 - 后台管理器与托盘进程
 - 自动生成的密码输入脚本缓存
 - 可选删除 `%LOCALAPPDATA%\WebShare` 本地数据
+
+当前补充说明：
+
+- `setup` / `system settings` 页面已经支持 `success / warning / error` 三态反馈
+- warning 用于表示“已在目标状态”“检测到旧残留并已修复”“某些旧对象原本已缺失”
+- 系统动作的详细记录会落到本地日志，便于排查用户无感失败
 
 对普通用户，也可以走这条更直接的路径：
 

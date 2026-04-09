@@ -5,16 +5,16 @@ package install
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"web-share/internal/logx"
 	"web-share/internal/manager"
 	"web-share/internal/notify"
 	"web-share/internal/shell"
-	"web-share/internal/tray"
+	"web-share/internal/systemstate"
 )
 
 const defaultTaskName = "WebShare.AutoStart"
@@ -56,18 +56,25 @@ func Install(opts InstallOptions) error {
 	}
 	lang := normalizeLanguage(opts.Language)
 	taskName := normalizeTaskName(opts.TaskName)
+	service := systemstate.NewWindowsService(logx.New())
 
 	if err := manager.SetSystemDefaultLanguage(lang); err != nil {
 		return fmt.Errorf("persist default language: %w", err)
 	}
 	if opts.InstallContextMenu {
-		if err := shell.InstallContextMenuWithLanguage(exePath, lang); err != nil {
-			return fmt.Errorf("install context menu: %w", err)
+		result := service.EnsureContextMenuInstalled(exePath, lang)
+		if !result.OK {
+			return fmt.Errorf("install context menu: %s", strings.Join(result.Errors, "; "))
 		}
 	}
 	if opts.InstallStartupTask {
-		if err := InstallStartupTask(exePath, taskName, lang, opts.NotifyStart, opts.ForceTask); err != nil {
-			return err
+		action := shell.QuoteCommand(exePath, "start", "-lang", lang)
+		if opts.NotifyStart {
+			action += " -notify-start=true"
+		}
+		result := service.EnsureAutostartEnabled(taskName, action)
+		if !result.OK {
+			return fmt.Errorf("install auto start: %s", strings.Join(result.Errors, "; "))
 		}
 	}
 	if opts.StartNow {
@@ -99,32 +106,20 @@ func Start(opts StartOptions) error {
 
 	managerReady := manager.IsReachable()
 	if opts.StartManager && !managerReady {
-		if err := shell.StartDetached(exePath, "run-manager"); err != nil {
-			return fmt.Errorf("start manager: %w", err)
+		result := systemstate.NewWindowsService(logx.New()).EnsureManagerRunning(exePath)
+		if !result.OK {
+			return fmt.Errorf("start manager: %s", strings.Join(result.Errors, "; "))
 		}
-		managerStarted = true
-		deadline := time.Now().Add(waitTimeout)
-		for time.Now().Before(deadline) {
-			if manager.IsReachable() {
-				managerReady = true
-				break
-			}
-			time.Sleep(250 * time.Millisecond)
-		}
-		if !managerReady {
-			return errors.New("manager did not become ready in time")
-		}
+		managerStarted = result.Changed
+		managerReady = true
 	}
 
 	if opts.StartTray {
-		alreadyRunning, err := trayRunning()
-		if err != nil {
-			return err
+		result := systemstate.NewWindowsService(logx.New()).EnsureTrayRunning(exePath)
+		if !result.OK {
+			return fmt.Errorf("start tray: %s", strings.Join(result.Errors, "; "))
 		}
-		if err := tray.EnsureStarted(); err != nil {
-			return fmt.Errorf("start tray: %w", err)
-		}
-		trayStarted = !alreadyRunning
+		trayStarted = result.Changed
 	}
 
 	if opts.NotifyStart {
@@ -145,19 +140,30 @@ func Repair(opts InstallOptions) error {
 }
 
 func Uninstall(opts UninstallOptions) error {
+	service := systemstate.NewWindowsService(logx.New())
+	command := ""
+	if strings.TrimSpace(opts.ExePath) != "" {
+		resolved, err := resolveExecutable(opts.ExePath)
+		if err == nil {
+			command = shell.QuoteCommand(resolved, "start", "-lang", normalizeLanguage(opts.Language), "-notify-start=true")
+		}
+	}
 	if opts.RemoveMenu {
-		if err := shell.UninstallContextMenu(); err != nil {
-			return fmt.Errorf("remove context menu: %w", err)
+		result := service.EnsureContextMenuRemoved("")
+		if !result.OK {
+			return fmt.Errorf("remove context menu: %s", strings.Join(result.Errors, "; "))
 		}
 	}
 	if opts.RemoveAutostart {
-		if err := UninstallStartupTask(normalizeTaskName(opts.TaskName)); err != nil {
-			return err
+		result := service.EnsureAutostartDisabled(normalizeTaskName(opts.TaskName), command)
+		if !result.OK {
+			return fmt.Errorf("remove auto start: %s", strings.Join(result.Errors, "; "))
 		}
 	}
 	if opts.StopProcesses {
-		_ = shutdownManager()
-		_ = tray.Stop()
+		stopService := systemstate.NewWindowsService(logx.New())
+		_ = stopService.EnsureManagerStopped()
+		_ = stopService.EnsureTrayStopped()
 	}
 	if err := removePasswordPromptScript(); err != nil {
 		return err
@@ -166,41 +172,6 @@ func Uninstall(opts UninstallOptions) error {
 		if err := removeDataDir(); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func InstallStartupTask(exePath, taskName, lang string, notifyStart, force bool) error {
-	taskName = normalizeTaskName(taskName)
-	exists, err := shell.CurrentUserRunExists(taskName)
-	if err != nil {
-		return fmt.Errorf("check auto start: %w", err)
-	}
-	if exists && !force {
-		return fmt.Errorf("auto start entry already exists: %s", taskName)
-	}
-
-	action := shell.QuoteCommand(exePath, "start", "-lang", normalizeLanguage(lang))
-	if notifyStart {
-		action += " -notify-start=true"
-	}
-	if err := shell.SetCurrentUserRun(taskName, action); err != nil {
-		return fmt.Errorf("install auto start: %w", err)
-	}
-	return nil
-}
-
-func UninstallStartupTask(taskName string) error {
-	taskName = normalizeTaskName(taskName)
-	exists, err := shell.CurrentUserRunExists(taskName)
-	if err != nil {
-		return fmt.Errorf("check auto start: %w", err)
-	}
-	if !exists {
-		return nil
-	}
-	if err := shell.DeleteCurrentUserRun(taskName); err != nil {
-		return fmt.Errorf("remove auto start: %w", err)
 	}
 	return nil
 }
@@ -263,24 +234,6 @@ func installMessage(lang, key string) string {
 	default:
 		return ""
 	}
-}
-
-func trayRunning() (bool, error) {
-	return shell.MutexExists(`Global\WebShareTraySingleton`)
-}
-
-func shutdownManager() error {
-	req, err := http.NewRequest(http.MethodPost, manager.LocalAPI("/api/shutdown"), nil)
-	if err != nil {
-		return err
-	}
-	client := &http.Client{Timeout: 1200 * time.Millisecond}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
-	return nil
 }
 
 func removePasswordPromptScript() error {

@@ -17,7 +17,7 @@ import (
 	"web-share/internal/install"
 	"web-share/internal/manager"
 	"web-share/internal/notify"
-	"web-share/internal/shell"
+	"web-share/internal/systemstate"
 	"web-share/internal/tray"
 )
 
@@ -73,16 +73,27 @@ func runLauncher() error {
 		return err
 	}
 	if runtime.GOOS == "windows" {
-		trayRunning, trayErr := shell.TrayRunning()
-		trayStarted := trayErr == nil && !trayRunning
-		if err := tray.EnsureStarted(); err != nil {
-			_ = notify.Error("Web Share", appMessage(lang, "tray_start_failed")+err.Error())
-			trayStarted = false
-		}
+		trayStarted := false
 		exePath, exeErr := os.Executable()
-		if exeErr == nil && !shell.ContextMenuInstalled() {
-			if err := shell.InstallContextMenuWithLanguage(exePath, lang); err != nil {
-				_ = notify.Error("Web Share", appMessage(lang, "context_install_failed")+err.Error())
+		if exeErr == nil {
+			service := systemstate.NewWindowsService(nil)
+			trayResult := service.EnsureTrayRunning(exePath)
+			if !trayResult.OK {
+				reason := strings.Join(trayResult.Errors, "; ")
+				if reason == "" {
+					reason = "unknown error"
+				}
+				_ = notify.Error("Web Share", appMessage(lang, "tray_start_failed")+reason)
+			} else {
+				trayStarted = trayResult.Changed
+			}
+			contextResult := service.EnsureContextMenuInstalled(exePath, lang)
+			if !contextResult.OK {
+				reason := strings.Join(contextResult.Errors, "; ")
+				if reason == "" {
+					reason = "unknown error"
+				}
+				_ = notify.Error("Web Share", appMessage(lang, "context_install_failed")+reason)
 			}
 		}
 		if managerStarted || trayStarted {
@@ -134,10 +145,21 @@ func runEnqueue(args []string) error {
 
 	if runtime.GOOS == "windows" {
 		lang := manager.SystemDefaultLanguage()
-		if err := tray.EnsureStarted(); err != nil {
-			_ = notify.Error("Web Share", appMessage(lang, "tray_start_failed")+err.Error())
+		exePath, exeErr := os.Executable()
+		trayStarted := false
+		if exeErr == nil {
+			result := systemstate.NewWindowsService(nil).EnsureTrayRunning(exePath)
+			if !result.OK {
+				reason := strings.Join(result.Errors, "; ")
+				if reason == "" {
+					reason = "unknown error"
+				}
+				_ = notify.Error("Web Share", appMessage(lang, "tray_start_failed")+reason)
+			} else {
+				trayStarted = result.Changed
+			}
 		}
-		if managerStarted {
+		if managerStarted || trayStarted {
 			_ = notify.Info("Web Share", appMessage(lang, "started"))
 		}
 	}
@@ -186,28 +208,15 @@ func runEnqueue(args []string) error {
 }
 
 func ensureManager() (bool, error) {
-	if manager.IsReachable() {
-		return false, nil
-	}
-
 	exePath, err := os.Executable()
 	if err != nil {
 		return false, fmt.Errorf("resolve executable: %w", err)
 	}
-
-	if err := shell.StartDetached(exePath, "run-manager"); err != nil {
-		return false, fmt.Errorf("start manager: %w", err)
+	result := systemstate.NewWindowsService(nil).EnsureManagerRunning(exePath)
+	if !result.OK {
+		return false, fmt.Errorf("start manager: %s", strings.Join(result.Errors, "; "))
 	}
-
-	deadline := time.Now().Add(6 * time.Second)
-	for time.Now().Before(deadline) {
-		if manager.IsReachable() {
-			return true, nil
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-
-	return false, errors.New("manager did not become ready in time")
+	return result.Changed, nil
 }
 
 func runInstallContextMenu(args []string) error {
@@ -220,7 +229,11 @@ func runInstallContextMenu(args []string) error {
 		return err
 	}
 
-	return shell.InstallContextMenuWithLanguage(exePath, lang)
+	result := systemstate.NewWindowsService(nil).EnsureContextMenuInstalled(exePath, lang)
+	if !result.OK {
+		return fmt.Errorf("install context menu: %s", strings.Join(result.Errors, "; "))
+	}
+	return nil
 }
 
 func runInstall(args []string) error {
@@ -328,7 +341,12 @@ func runUninstallContextMenu() error {
 		return errors.New("context menu installation is only supported on Windows")
 	}
 
-	return shell.UninstallContextMenu()
+	exePath, _ := os.Executable()
+	result := systemstate.NewWindowsService(nil).EnsureContextMenuRemoved(exePath)
+	if !result.OK {
+		return fmt.Errorf("uninstall context menu: %s", strings.Join(result.Errors, "; "))
+	}
+	return nil
 }
 
 func resolveExecutableArg(args []string) (string, string, error) {
@@ -370,8 +388,17 @@ func applySystemLanguage(lang string) error {
 	if err != nil {
 		return fmt.Errorf("resolve executable: %w", err)
 	}
-	if err := shell.InstallContextMenuWithLanguage(exePath, lang); err != nil {
-		return err
+	service := systemstate.NewWindowsService(nil)
+	result := service.EnsureContextMenuInstalled(exePath, lang)
+	if !result.OK {
+		return fmt.Errorf("ensure context menu installed: %s", strings.Join(result.Errors, "; "))
+	}
+	result = service.EnsureTrayRunning(exePath)
+	if !result.OK {
+		return fmt.Errorf("ensure tray running: %s", strings.Join(result.Errors, "; "))
+	}
+	if result.Changed {
+		return nil
 	}
 	return tray.Restart()
 }

@@ -437,6 +437,11 @@ const setupHTML = `{{define "setup"}}<!DOCTYPE html>
       background: rgba(157,53,39,0.1);
       color: var(--err);
     }
+    .flash.warn {
+      background: rgba(192,90,43,0.12);
+      color: var(--warm);
+      white-space: pre-line;
+    }
     .flash[hidden] { display: none; }
     .flash[hidden] { display: none; }
     .form-grid {
@@ -505,6 +510,7 @@ const setupHTML = `{{define "setup"}}<!DOCTYPE html>
     </div>
     <div class="content">
       <div id="setup-flash-ok" class="flash ok" {{if not .ApplySuccess}}hidden{{end}}>{{.ApplySuccess}}</div>
+      <div id="setup-flash-warn" class="flash warn" hidden></div>
       <div id="setup-flash-err" class="flash err" {{if not .ApplyError}}hidden{{end}}>{{.ApplyError}}</div>
       <form id="setup-form" class="card form-grid" method="post" action="/api/setup/apply?lang={{.CurrentLang}}">
         <div class="field">
@@ -562,6 +568,7 @@ const setupHTML = `{{define "setup"}}<!DOCTYPE html>
       const form = document.getElementById('setup-form');
       if (!form) return;
       const okBox = document.getElementById('setup-flash-ok');
+      const warnBox = document.getElementById('setup-flash-warn');
       const errBox = document.getElementById('setup-flash-err');
       const labels = {
         completed: {{printf "%q" (tr .CurrentLang "setup.completed_yes")}},
@@ -575,11 +582,14 @@ const setupHTML = `{{define "setup"}}<!DOCTYPE html>
         langEN: {{printf "%q" (tr .CurrentLang "lang.en")}},
         langZH: {{printf "%q" (tr .CurrentLang "lang.zh")}}
       };
-      function setFlash(target, text) {
+      function setFlash(target, text, warnings) {
         okBox.hidden = target !== 'ok';
+        warnBox.hidden = target !== 'warn';
         errBox.hidden = target !== 'err';
-        if (target === 'ok') okBox.textContent = text || '';
-        if (target === 'err') errBox.textContent = text || '';
+        const extra = Array.isArray(warnings) && warnings.length ? '\n' + warnings.join('\n') : '';
+        if (target === 'ok') okBox.textContent = (text || '') + extra;
+        if (target === 'warn') warnBox.textContent = (text || '') + extra;
+        if (target === 'err') errBox.textContent = (text || '') + extra;
       }
       function applyStatus(status) {
         if (!status) return;
@@ -613,10 +623,10 @@ const setupHTML = `{{define "setup"}}<!DOCTYPE html>
           });
           const data = await resp.json();
           if (!resp.ok || !data.ok) {
-            setFlash('err', data.message || 'Request failed');
+            setFlash('err', data.message || 'Request failed', data.warnings || data.errors || []);
             return;
           }
-          setFlash('ok', data.message || '');
+          setFlash((data.warnings && data.warnings.length) ? 'warn' : 'ok', data.message || '', data.warnings || []);
           applyStatus(data.status);
         } catch (_) {
           setFlash('err', 'Request failed');
@@ -805,6 +815,7 @@ const systemHTML = `{{define "system"}}<!DOCTYPE html>
     </div>
     <div class="content">
       <div id="system-flash-ok" class="flash ok" {{if not .ApplySuccess}}hidden{{end}}>{{.ApplySuccess}}</div>
+      <div id="system-flash-warn" class="flash warn" hidden></div>
       <div id="system-flash-err" class="flash err" {{if not .ApplyError}}hidden{{end}}>{{.ApplyError}}</div>
       <div class="card">
         <div class="section-title">{{tr .CurrentLang "system.section_status"}}</div>
@@ -899,6 +910,7 @@ const systemHTML = `{{define "system"}}<!DOCTYPE html>
       const forms = document.querySelectorAll('.async-action-form');
       if (!forms.length) return;
       const okBox = document.getElementById('system-flash-ok');
+      const warnBox = document.getElementById('system-flash-warn');
       const errBox = document.getElementById('system-flash-err');
       const labels = {
         completed: {{printf "%q" (tr .CurrentLang "setup.completed_yes")}},
@@ -910,11 +922,14 @@ const systemHTML = `{{define "system"}}<!DOCTYPE html>
         enabled: {{printf "%q" (tr .CurrentLang "setup.status_enabled")}},
         disabled: {{printf "%q" (tr .CurrentLang "setup.status_disabled")}}
       };
-      function setFlash(target, text) {
+      function setFlash(target, text, warnings) {
         okBox.hidden = target !== 'ok';
+        warnBox.hidden = target !== 'warn';
         errBox.hidden = target !== 'err';
-        if (target === 'ok') okBox.textContent = text || '';
-        if (target === 'err') errBox.textContent = text || '';
+        const extra = Array.isArray(warnings) && warnings.length ? '\n' + warnings.join('\n') : '';
+        if (target === 'ok') okBox.textContent = (text || '') + extra;
+        if (target === 'warn') warnBox.textContent = (text || '') + extra;
+        if (target === 'err') errBox.textContent = (text || '') + extra;
       }
       function applyStatus(status) {
         if (!status) return;
@@ -950,10 +965,10 @@ const systemHTML = `{{define "system"}}<!DOCTYPE html>
             });
             const data = await resp.json();
             if (!resp.ok || !data.ok) {
-              setFlash('err', data.message || 'Request failed');
+              setFlash('err', data.message || 'Request failed', data.warnings || data.errors || []);
               return;
             }
-            setFlash('ok', data.message || '');
+            setFlash((data.warnings && data.warnings.length) ? 'warn' : 'ok', data.message || '', data.warnings || []);
             applyStatus(data.status);
           } catch (_) {
             setFlash('err', 'Request failed');

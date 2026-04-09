@@ -27,8 +27,9 @@ import (
 	"unicode/utf8"
 
 	qrcode "github.com/skip2/go-qrcode"
-
+	"web-share/internal/logx"
 	"web-share/internal/shell"
+	"web-share/internal/systemstate"
 )
 
 const (
@@ -56,6 +57,7 @@ type Manager struct {
 	cfg       Config
 	server    *http.Server
 	templates *template.Template
+	logger    logx.Logger
 
 	mu          sync.RWMutex
 	store       ShareStore
@@ -296,6 +298,7 @@ func Run(cfg Config) error {
 		templates: template.Must(template.New("pages").Funcs(template.FuncMap{
 			"tr": tr,
 		}).Parse(homeHTML + manageHTML + shareHTML + setupHTML + systemHTML)),
+		logger:   logx.New(),
 		store:    store,
 		settings: settings,
 		uploads:  make(map[string]*uploadSession),
@@ -474,8 +477,17 @@ func (m *Manager) handleShutdown(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
-	go m.shutdownProgram()
+	m.writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"message": "Program stop requested.",
+	})
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		m.shutdownProgram()
+	}()
 }
 
 func (m *Manager) handleCreateShare(w http.ResponseWriter, r *http.Request) {
@@ -623,9 +635,17 @@ func (m *Manager) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 	if !isSupportedLanguage(lang) {
 		lang = m.defaultLanguage()
 	}
+	service := systemstate.NewWindowsService(m.logger)
+	service.Program = programShutdownPort{shutdown: func() error {
+		go func() {
+			time.Sleep(150 * time.Millisecond)
+			m.shutdownProgram()
+		}()
+		return nil
+	}}
 	if err := m.settingsStore().SetDefaultLanguage(lang); err != nil {
 		if wantsJSON(r) {
-			m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": tr(lang, "setup.apply_failed")})
+			m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": tr(lang, "setup.apply_failed"), "warnings": []string{}})
 			return
 		}
 		http.Redirect(w, r, "/setup?lang="+url.QueryEscape(lang)+"&error="+url.QueryEscape(tr(lang, "setup.apply_failed")), http.StatusSeeOther)
@@ -634,7 +654,7 @@ func (m *Manager) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("complete_setup") == "on" {
 		if err := m.settingsStore().SetSetupCompleted(true); err != nil {
 			if wantsJSON(r) {
-				m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": tr(lang, "setup.apply_failed")})
+				m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": tr(lang, "setup.apply_failed"), "warnings": []string{}})
 				return
 			}
 			http.Redirect(w, r, "/setup?lang="+url.QueryEscape(lang)+"&error="+url.QueryEscape(tr(lang, "setup.apply_failed")), http.StatusSeeOther)
@@ -644,52 +664,82 @@ func (m *Manager) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 	if m.cfg.ApplySystemLanguage != nil {
 		if err := m.cfg.ApplySystemLanguage(lang); err != nil {
 			if wantsJSON(r) {
-				m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": tr(lang, "setup.apply_failed")})
+				m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": tr(lang, "setup.apply_failed"), "warnings": []string{}})
 				return
 			}
 			http.Redirect(w, r, "/setup?lang="+url.QueryEscape(lang)+"&error="+url.QueryEscape(tr(lang, "setup.apply_failed")), http.StatusSeeOther)
 			return
 		}
 	}
+	warnings := make([]string, 0, 4)
 	if r.FormValue("install_context_menu") == "on" {
 		exePath, err := os.Executable()
-		if err != nil || shell.InstallContextMenuWithLanguage(exePath, lang) != nil {
+		result := systemstate.Failure("", "resolve executable failed")
+		if err == nil {
+			result = service.EnsureContextMenuInstalled(exePath, lang)
+		}
+		if !result.OK {
 			if wantsJSON(r) {
-				m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": tr(lang, "setup.apply_failed")})
+				message := result.Message
+				if message == "" {
+					message = tr(lang, "setup.apply_failed")
+				}
+				m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": message, "warnings": result.Warnings, "errors": result.Errors})
 				return
 			}
 			http.Redirect(w, r, "/setup?lang="+url.QueryEscape(lang)+"&error="+url.QueryEscape(tr(lang, "setup.apply_failed")), http.StatusSeeOther)
 			return
 		}
+		warnings = append(warnings, result.Warnings...)
 	}
 	if r.FormValue("enable_autostart") == "on" {
 		exePath, err := os.Executable()
-		if err != nil || installStartupTask(exePath, lang) != nil {
+		result := systemstate.Failure("", "resolve executable failed")
+		if err == nil {
+			command := shell.QuoteCommand(exePath, "start", "-lang", lang, "-notify-start=true")
+			result = service.EnsureAutostartEnabled("WebShare.AutoStart", command)
+		}
+		if !result.OK {
 			if wantsJSON(r) {
-				m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": tr(lang, "setup.apply_failed")})
+				message := result.Message
+				if message == "" {
+					message = tr(lang, "setup.apply_failed")
+				}
+				m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": message, "warnings": result.Warnings, "errors": result.Errors})
 				return
 			}
 			http.Redirect(w, r, "/setup?lang="+url.QueryEscape(lang)+"&error="+url.QueryEscape(tr(lang, "setup.apply_failed")), http.StatusSeeOther)
 			return
 		}
+		warnings = append(warnings, result.Warnings...)
 	}
 	if r.FormValue("start_tray") == "on" {
 		exePath, err := os.Executable()
-		if err != nil || startTrayProcess(exePath) != nil {
+		result := systemstate.Failure("", "resolve executable failed")
+		if err == nil {
+			result = service.EnsureTrayRunning(exePath)
+		}
+		if !result.OK {
 			if wantsJSON(r) {
-				m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": tr(lang, "setup.apply_failed")})
+				message := result.Message
+				if message == "" {
+					message = tr(lang, "setup.apply_failed")
+				}
+				m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": message, "warnings": result.Warnings, "errors": result.Errors})
 				return
 			}
 			http.Redirect(w, r, "/setup?lang="+url.QueryEscape(lang)+"&error="+url.QueryEscape(tr(lang, "setup.apply_failed")), http.StatusSeeOther)
 			return
 		}
+		warnings = append(warnings, result.Warnings...)
 	}
 	setLanguageCookie(w, lang)
 	if wantsJSON(r) {
 		m.writeJSON(w, http.StatusOK, map[string]any{
-			"ok":      true,
-			"message": tr(lang, "setup.apply_ok"),
-			"status":  m.setupStatus(lang),
+			"ok":       true,
+			"message":  tr(lang, "setup.apply_ok"),
+			"warnings": warnings,
+			"status":   m.setupStatus(lang),
 		})
 		return
 	}
@@ -743,16 +793,21 @@ func (m *Manager) handleSystemApply(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := m.settingsStore().SetDefaultLanguage(lang); err != nil {
 		if wantsJSON(r) {
-			m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": tr(lang, "system.apply_failed")})
+			m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": tr(lang, "system.apply_failed"), "warnings": []string{}})
 			return
 		}
 		http.Redirect(w, r, "/manage/settings/system?lang="+url.QueryEscape(lang)+"&error="+url.QueryEscape(tr(lang, "system.apply_failed")), http.StatusSeeOther)
 		return
 	}
 	action := strings.TrimSpace(r.FormValue("action"))
-	if err := m.applySystemAction(lang, action); err != nil {
+	result := m.applySystemAction(lang, action)
+	if !result.OK {
 		if wantsJSON(r) {
-			m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": tr(lang, "system.apply_failed")})
+			message := result.Message
+			if message == "" {
+				message = tr(lang, "system.apply_failed")
+			}
+			m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": message, "warnings": result.Warnings, "errors": result.Errors})
 			return
 		}
 		http.Redirect(w, r, "/manage/settings/system?lang="+url.QueryEscape(lang)+"&error="+url.QueryEscape(tr(lang, "system.apply_failed")), http.StatusSeeOther)
@@ -760,10 +815,15 @@ func (m *Manager) handleSystemApply(w http.ResponseWriter, r *http.Request) {
 	}
 	setLanguageCookie(w, lang)
 	if wantsJSON(r) {
+		message := result.Message
+		if message == "" {
+			message = tr(lang, "system.apply_ok")
+		}
 		m.writeJSON(w, http.StatusOK, map[string]any{
-			"ok":      true,
-			"message": tr(lang, "system.apply_ok"),
-			"status":  m.setupStatus(lang),
+			"ok":       true,
+			"message":  message,
+			"warnings": result.Warnings,
+			"status":   m.setupStatus(lang),
 		})
 		return
 	}
@@ -772,69 +832,75 @@ func (m *Manager) handleSystemApply(w http.ResponseWriter, r *http.Request) {
 
 func (m *Manager) setupStatus(lang string) setupStatusPayload {
 	setupCompleted, _ := m.settingsStore().GetSetupCompleted()
-	trayRunning, _ := shell.TrayRunning()
-	autostartEnabled, _ := shell.CurrentUserRunExists("WebShare.AutoStart")
+	exePath, _ := os.Executable()
+	command := ""
+	if exePath != "" {
+		command = shell.QuoteCommand(exePath, "start", "-lang", m.defaultLanguage(), "-notify-start=true")
+	}
+	snapshot, _ := systemstate.NewWindowsService(m.logger).Snapshot(exePath, "WebShare.AutoStart", command)
 	return setupStatusPayload{
 		DefaultLanguage:      m.defaultLanguage(),
 		SetupCompleted:       setupCompleted,
 		ManagerRunning:       true,
-		TrayRunning:          trayRunning,
-		ContextMenuInstalled: shell.ContextMenuInstalled(),
-		AutostartEnabled:     autostartEnabled,
+		TrayRunning:          snapshot.TrayRunning,
+		ContextMenuInstalled: snapshot.ContextMenuInstalled && !snapshot.ContextMenuDirty,
+		AutostartEnabled:     snapshot.AutostartEnabled && !snapshot.AutostartDirty,
 		ManageURL:            withLanguageInURL(&http.Request{URL: &url.URL{Path: "/manage"}}, lang),
 		SetupURL:             withLanguageInURL(&http.Request{URL: &url.URL{Path: "/setup"}}, lang),
 	}
 }
 
-func installStartupTask(exePath, lang string) error {
-	action := shell.QuoteCommand(exePath, "start", "-lang", lang, "-notify-start=true")
-	return shell.SetCurrentUserRun("WebShare.AutoStart", action)
-}
-
-func startTrayProcess(exePath string) error {
-	running, err := shell.TrayRunning()
-	if err == nil && running {
-		return nil
-	}
-	return shell.StartDetached(exePath, "tray")
-}
-
-func uninstallStartupTask(taskName string) error {
-	return shell.DeleteCurrentUserRun(taskName)
-}
-
-func (m *Manager) applySystemAction(lang, action string) error {
+func (m *Manager) applySystemAction(lang, action string) systemstate.OperationResult {
 	exePath, err := os.Executable()
 	if err != nil {
-		return err
+		return systemstate.Failure("Failed to resolve executable path.", err.Error())
 	}
+	service := systemstate.NewWindowsService(m.logger)
 	switch action {
 	case "", "save_language":
 		if m.cfg.ApplySystemLanguage != nil {
-			return m.cfg.ApplySystemLanguage(lang)
+			if err := m.cfg.ApplySystemLanguage(lang); err != nil {
+				return systemstate.Failure("Failed to apply language settings.", err.Error())
+			}
 		}
-		return nil
+		return systemstate.Success(tr(lang, "system.apply_ok"), false)
 	case "install_context":
-		return shell.InstallContextMenuWithLanguage(exePath, lang)
+		return service.EnsureContextMenuInstalled(exePath, lang)
 	case "remove_context":
-		return shell.UninstallContextMenu()
+		return service.EnsureContextMenuRemoved(exePath)
 	case "enable_autostart":
-		return installStartupTask(exePath, lang)
+		command := shell.QuoteCommand(exePath, "start", "-lang", lang, "-notify-start=true")
+		return service.EnsureAutostartEnabled("WebShare.AutoStart", command)
 	case "disable_autostart":
-		return uninstallStartupTask("WebShare.AutoStart")
+		command := shell.QuoteCommand(exePath, "start", "-lang", lang, "-notify-start=true")
+		return service.EnsureAutostartDisabled("WebShare.AutoStart", command)
 	case "start_tray":
-		return startTrayProcess(exePath)
+		return service.EnsureTrayRunning(exePath)
 	case "stop_tray":
-		return shell.StopTray()
+		return service.EnsureTrayStopped()
 	case "stop_program":
-		go m.shutdownProgram()
-		return nil
+		service.Program = programShutdownPort{
+			shutdown: func() error {
+				go func() {
+					time.Sleep(150 * time.Millisecond)
+					m.shutdownProgram()
+				}()
+				return nil
+			},
+		}
+		return service.EnsureProgramStopped()
 	case "mark_setup_done":
-		return m.settingsStore().SetSetupCompleted(true)
+		if err := m.settingsStore().SetSetupCompleted(true); err != nil {
+			return systemstate.Failure("Failed to mark setup completed.", err.Error())
+		}
+		return systemstate.Success("Setup marked as completed.", true)
 	case "mark_setup_todo":
-		return m.settingsStore().SetSetupCompleted(false)
+		if err := m.settingsStore().SetSetupCompleted(false); err != nil {
+			return systemstate.Failure("Failed to mark setup pending.", err.Error())
+		}
+		return systemstate.Success("Setup marked as pending.", true)
 	default:
-		return errors.New("unsupported action")
+		return systemstate.Failure("Unsupported system action.", "unsupported action")
 	}
 }
 
@@ -843,6 +909,21 @@ func (m *Manager) shutdownProgram() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	_ = m.server.Shutdown(ctx)
+}
+
+type programShutdownPort struct {
+	shutdown func() error
+}
+
+func (p programShutdownPort) Inspect() (systemstate.InspectResult, error) {
+	return systemstate.InspectResult{Installed: true}, nil
+}
+
+func (p programShutdownPort) Stop() error {
+	if p.shutdown == nil {
+		return nil
+	}
+	return p.shutdown()
 }
 
 func wantsJSON(r *http.Request) bool {
