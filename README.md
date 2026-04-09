@@ -39,6 +39,11 @@ It integrates with the Windows context menu, runs a local HTTP manager on port `
 - Manager address: `http://127.0.0.1:21910/manage`
 - Public home page: `http://127.0.0.1:21910/`
 - Share URL: `http://<LAN-IP>:21910/s/<share-code>`
+- Double-clicking `web-share.exe` starts the manager and tray in the background
+- Normal launch shows a startup notification and does not open the browser automatically
+- The tray is the primary entry for opening the management page
+- On first run, the saved default language follows the Windows system language
+- On normal launch, the Windows context menu is installed automatically if missing
 - `enqueue` starts manager and tray automatically if they are not running
 - New shares are hidden from the public home page by default
 
@@ -64,7 +69,18 @@ Note:
 
 ### Setup
 
-Recommended: use the built-in single-file install command.
+Recommended for end users: build a `windowsgui` executable and double-click `web-share.exe`.
+
+Default double-click behavior:
+
+- Starts manager in the background
+- Starts tray in the background
+- Shows a startup-complete notification
+- Uses the saved default language, or initializes it from Windows on first run
+- Automatically installs the context menu if it is missing
+- Does not open the browser automatically
+
+Optional advanced/manual install command:
 
 ```powershell
 .\web-share.exe install -lang en-US
@@ -147,6 +163,8 @@ English menu:
 - Folder: `Share via Web > Read-Only Share`
 - Folder: `Share via Web > Share with Upload Password`
 
+Upload-password folder sharing uses a native Windows password prompt and does not rely on PowerShell or VBS popups.
+
 Chinese menu:
 
 - 文件：`通过 Web 分享 > 只读分享`
@@ -174,6 +192,7 @@ Built-in behavior:
 - Starts tray when needed
 - Shows a startup success notification
 - Does not relaunch already running components
+- Does not open the browser automatically
 
 Legacy wrapper script:
 
@@ -225,6 +244,14 @@ The built-in uninstall command removes:
 - Running manager/tray processes
 - Generated prompt script cache
 - Optional local data under `%LOCALAPPDATA%\WebShare`
+
+For the normal user flow, you can also:
+
+1. Open the Web system settings page from tray
+2. Remove context menu and auto start
+3. Exit the program from tray
+4. Delete `web-share.exe`
+5. Optionally delete `%LOCALAPPDATA%\WebShare`
 
 Legacy wrapper script:
 
@@ -296,6 +323,11 @@ Legacy wrapper script:
 - 管理页地址：`http://127.0.0.1:21910/manage`
 - 公开首页：`http://127.0.0.1:21910/`
 - 分享地址：`http://<局域网IP>:21910/s/<share-code>`
+- 双击 `web-share.exe` 会在后台启动管理器和托盘
+- 正常启动会弹出启动完成通知，不会自动打开浏览器
+- 托盘是打开管理页面的主入口
+- 首次启动时，默认语言会跟随 Windows 系统语言落库
+- 正常启动时，如果右键菜单缺失，会自动补装
 - `enqueue` 在管理器或托盘未启动时会自动拉起它们
 - 新建分享默认不会显示在公开首页
 
@@ -321,7 +353,18 @@ go build -o .\web-share.exe .\cmd\web-share
 
 ### 初始化安装
 
-推荐直接使用内置的单文件安装命令：
+推荐终端用户直接编译 `windowsgui` 版本后双击 `web-share.exe`。
+
+双击后的默认行为：
+
+- 在后台启动管理器
+- 在后台启动托盘
+- 弹出启动完成通知
+- 使用已保存的默认语言；若是首次启动，则从 Windows 系统语言初始化
+- 如果右键菜单缺失则自动安装
+- 不会自动打开浏览器
+
+如需显式手动安装，也可以使用内置命令：
 
 ```powershell
 .\web-share.exe install -lang zh-CN
@@ -410,6 +453,8 @@ go build -o .\web-share.exe .\cmd\web-share
 - 文件夹：`通过 Web 分享 > 只读分享`
 - 文件夹：`通过 Web 分享 > 设置上传密码后分享`
 
+带上传密码的文件夹分享现在使用原生 Windows 密码输入框，不依赖 PowerShell 或 VBS 弹窗。
+
 卸载：
 
 ```powershell
@@ -431,6 +476,7 @@ go build -o .\web-share.exe .\cmd\web-share
 - 需要时启动托盘
 - 显示启动成功通知
 - 已运行的组件不会被重复拉起
+- 不会自动打开浏览器
 
 兼容脚本入口：
 
@@ -482,6 +528,14 @@ go build -o .\web-share.exe .\cmd\web-share
 - 后台管理器与托盘进程
 - 自动生成的密码输入脚本缓存
 - 可选删除 `%LOCALAPPDATA%\WebShare` 本地数据
+
+对普通用户，也可以走这条更直接的路径：
+
+1. 从托盘打开 Web 系统设置页
+2. 卸载右键菜单、关闭自启动
+3. 从托盘退出程序
+4. 手动删除 `web-share.exe`
+5. 按需删除 `%LOCALAPPDATA%\WebShare`
 
 兼容脚本入口：
 

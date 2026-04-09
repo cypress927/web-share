@@ -29,6 +29,8 @@ func Run() error {
 	switch os.Args[1] {
 	case "share", "enqueue":
 		return runEnqueue(os.Args[2:])
+	case "prompt-share":
+		return runPromptShare(os.Args[2:])
 	case "install":
 		return runInstall(os.Args[2:])
 	case "start":
@@ -65,26 +67,29 @@ func Run() error {
 }
 
 func runLauncher() error {
+	lang := manager.SystemDefaultLanguage()
 	managerStarted, err := ensureManager()
 	if err != nil {
 		return err
 	}
 	if runtime.GOOS == "windows" {
+		trayRunning, trayErr := shell.TrayRunning()
+		trayStarted := trayErr == nil && !trayRunning
 		if err := tray.EnsureStarted(); err != nil {
-			lang := manager.SystemDefaultLanguage()
 			_ = notify.Error("Web Share", appMessage(lang, "tray_start_failed")+err.Error())
+			trayStarted = false
 		}
-		if managerStarted {
-			lang := manager.SystemDefaultLanguage()
+		exePath, exeErr := os.Executable()
+		if exeErr == nil && !shell.ContextMenuInstalled() {
+			if err := shell.InstallContextMenuWithLanguage(exePath, lang); err != nil {
+				_ = notify.Error("Web Share", appMessage(lang, "context_install_failed")+err.Error())
+			}
+		}
+		if managerStarted || trayStarted {
 			_ = notify.Info("Web Share", appMessage(lang, "started"))
+		} else {
+			_ = notify.Info("Web Share", appMessage(lang, "already_running"))
 		}
-	}
-	target := manager.LocalManageURL()
-	if !manager.SetupCompleted() {
-		target = manager.LocalSetupURL()
-	}
-	if err := shell.OpenBrowser(target); err != nil {
-		return fmt.Errorf("open browser: %w", err)
 	}
 	return nil
 }
@@ -384,10 +389,14 @@ func appMessage(lang, key string) string {
 			return "托盘启动失败："
 		case "started":
 			return "Web Share 已启动"
+		case "already_running":
+			return "Web Share 已在运行"
 		case "add_failed":
 			return "分享添加失败："
 		case "added":
 			return "分享已添加："
+		case "context_install_failed":
+			return "右键菜单安装失败："
 		}
 	}
 	switch key {
@@ -401,10 +410,14 @@ func appMessage(lang, key string) string {
 		return "Tray startup failed: "
 	case "started":
 		return "Web Share started"
+	case "already_running":
+		return "Web Share is already running"
 	case "add_failed":
 		return "Failed to add share: "
 	case "added":
 		return "Share added: "
+	case "context_install_failed":
+		return "Context menu installation failed: "
 	default:
 		return ""
 	}
@@ -420,6 +433,7 @@ Usage:
   web-share uninstall [-remove-data=false]
   web-share enqueue [-password secret] <path>
   web-share share [-password secret] <path>
+  web-share prompt-share [-lang en-US|zh-CN] <path>
   web-share tray
   web-share run-manager
   web-share install-context-menu [-exe C:\path\to\web-share.exe] [-lang en-US|zh-CN]

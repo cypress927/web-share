@@ -289,6 +289,7 @@ func Run(cfg Config) error {
 	if err != nil {
 		return err
 	}
+	_ = ensureSettingsDefaultLanguage(settings)
 
 	mgr := &Manager{
 		cfg: cfg,
@@ -474,11 +475,7 @@ func (m *Manager) handleShutdown(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		_ = m.server.Shutdown(ctx)
-	}()
+	go m.shutdownProgram()
 }
 
 func (m *Manager) handleCreateShare(w http.ResponseWriter, r *http.Request) {
@@ -829,6 +826,9 @@ func (m *Manager) applySystemAction(lang, action string) error {
 		return startTrayProcess(exePath)
 	case "stop_tray":
 		return shell.StopTray()
+	case "stop_program":
+		go m.shutdownProgram()
+		return nil
 	case "mark_setup_done":
 		return m.settingsStore().SetSetupCompleted(true)
 	case "mark_setup_todo":
@@ -836,6 +836,13 @@ func (m *Manager) applySystemAction(lang, action string) error {
 	default:
 		return errors.New("unsupported action")
 	}
+}
+
+func (m *Manager) shutdownProgram() {
+	_ = shell.StopTray()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_ = m.server.Shutdown(ctx)
 }
 
 func wantsJSON(r *http.Request) bool {

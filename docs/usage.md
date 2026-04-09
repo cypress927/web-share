@@ -16,6 +16,15 @@ It lets you share files, folders, and clipboard content over HTTP from Windows c
 - New shares are hidden from public home page by default
 - Management page is accessed from tray
 
+### Recommended User Flow
+
+- Double-click `web-share.exe`
+- Wait for tray icon and startup notification
+- Open the management page from tray when needed
+- The browser does not open automatically on normal launch
+- On first run, the default language follows Windows system language
+- If context menu is missing, normal launch installs it automatically
+
 ### Build
 
 ```powershell
@@ -24,7 +33,13 @@ go build -ldflags="-H=windowsgui" -o .\web-share.exe .\cmd\web-share
 
 ### First-Time Setup
 
-Recommended:
+Recommended for end users:
+
+```powershell
+.\web-share.exe
+```
+
+Advanced/manual install:
 
 ```powershell
 .\web-share.exe install -lang en-US
@@ -101,7 +116,17 @@ Chinese:
 - 文件夹：`通过 Web 分享 > 只读分享`
 - 文件夹：`通过 Web 分享 > 设置上传密码后分享`
 
+Upload-password folder sharing uses a native Windows password prompt and does not rely on PowerShell or VBS popups.
+
 ### Runtime Behavior
+
+When you double-click `web-share.exe`:
+
+- Manager starts automatically if not running
+- Tray starts automatically if not running
+- Startup success notification is shown
+- Browser does not open automatically
+- Missing context menu is installed automatically
 
 When you create a share from context menu:
 
@@ -273,6 +298,15 @@ The unified uninstall script removes:
 - 新建分享默认首页隐藏
 - 管理页面通过托盘图标进入
 
+### 推荐使用方式
+
+- 双击 `web-share.exe`
+- 等待托盘图标出现和启动完成通知
+- 需要时从托盘打开管理页面
+- 正常启动不会自动打开浏览器
+- 首次启动时默认语言会跟随 Windows 系统语言
+- 如果右键菜单缺失，正常启动会自动补装
+
 ### 构建
 
 ```powershell
@@ -281,7 +315,13 @@ go build -ldflags="-H=windowsgui" -o .\web-share.exe .\cmd\web-share
 
 ### 首次使用
 
-推荐直接使用内置单文件安装命令：
+推荐普通用户直接运行：
+
+```powershell
+.\web-share.exe
+```
+
+如需显式手动安装，也可以使用内置命令：
 
 ```powershell
 .\web-share.exe install -lang zh-CN
@@ -358,7 +398,17 @@ go build -ldflags="-H=windowsgui" -o .\web-share.exe .\cmd\web-share
 - 文件夹：`通过 Web 分享 > 只读分享`
 - 文件夹：`通过 Web 分享 > 设置上传密码后分享`
 
+带上传密码的文件夹分享现在使用原生 Windows 密码输入框，不依赖 PowerShell 或 VBS 弹窗。
+
 ### 启动行为
+
+当你双击 `web-share.exe` 时：
+
+- 如果后台管理器未启动，程序会自动在后台启动它
+- 如果托盘未启动，程序会自动在后台启动托盘
+- 会弹出启动成功通知
+- 不会自动打开浏览器
+- 如果右键菜单缺失，会自动补装
 
 当你通过右键菜单发起分享时：
 

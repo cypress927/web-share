@@ -4,10 +4,7 @@ package shell
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-	"unicode/utf16"
 
 	"golang.org/x/sys/windows/registry"
 )
@@ -87,12 +84,7 @@ func InstallContextMenuWithLanguage(exePath, lang string) error {
 }
 
 func buildPasswordCommand(exePath, lang string) (string, error) {
-	scriptPath, err := ensurePasswordPromptScript(lang)
-	if err != nil {
-		return "", fmt.Errorf("create password prompt script: %w", err)
-	}
-
-	return fmt.Sprintf(`wscript.exe "%s" "%s" "%%1"`, scriptPath, exePath), nil
+	return fmt.Sprintf(`"%s" prompt-share -lang "%s" "%%1"`, exePath, normalizePromptLanguage(lang)), nil
 }
 
 func UninstallContextMenu() error {
@@ -166,56 +158,6 @@ func deleteKeyTree(path string) error {
 	return nil
 }
 
-func ensurePasswordPromptScript(lang string) (string, error) {
-	baseDir := os.Getenv("LOCALAPPDATA")
-	if baseDir == "" {
-		var err error
-		baseDir, err = os.UserConfigDir()
-		if err != nil {
-			return "", err
-		}
-	}
-
-	scriptDir := filepath.Join(baseDir, "WebShare")
-	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
-		return "", err
-	}
-
-	scriptPath := filepath.Join(scriptDir, "prompt-share.vbs")
-	if err := os.WriteFile(scriptPath, encodeUTF16LE(passwordPromptVBScript(lang)), 0o644); err != nil {
-		return "", err
-	}
-
-	return scriptPath, nil
-}
-
-func passwordPromptVBScript(lang string) string {
-	prompt := "Enter upload password. Leave empty to cancel sharing."
-	title := "Web Share Upload Password"
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh") {
-		prompt = "请输入上传密码。留空则取消分享。"
-		title = "Web Share 上传密码"
-	}
-	return `Dim exePath, targetPath, passwordText, shell, quote, commandText
-If WScript.Arguments.Count < 2 Then
-    WScript.Quit 1
-End If
-
-exePath = WScript.Arguments(0)
-targetPath = WScript.Arguments(1)
-passwordText = InputBox("` + vbEscape(prompt) + `", "` + vbEscape(title) + `", "")
-
-If Len(Trim(passwordText)) = 0 Then
-    WScript.Quit 0
-End If
-
-Set shell = CreateObject("WScript.Shell")
-quote = Chr(34)
-commandText = quote & exePath & quote & " enqueue -password " & quote & Replace(passwordText, quote, quote & quote) & quote & " " & quote & targetPath & quote
-shell.Run commandText, 0, False
-`
-}
-
 type menuTextSet struct {
 	rootVerb     string
 	readOnlyVerb string
@@ -237,17 +179,9 @@ func contextMenuTexts(lang string) menuTextSet {
 	}
 }
 
-func vbEscape(value string) string {
-	return strings.ReplaceAll(value, `"`, `""`)
-}
-
-func encodeUTF16LE(text string) []byte {
-	encoded := utf16.Encode([]rune(text))
-	buf := make([]byte, 2, 2+len(encoded)*2)
-	buf[0] = 0xFF
-	buf[1] = 0xFE
-	for _, r := range encoded {
-		buf = append(buf, byte(r), byte(r>>8))
+func normalizePromptLanguage(lang string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh") {
+		return "zh-CN"
 	}
-	return buf
+	return "en-US"
 }

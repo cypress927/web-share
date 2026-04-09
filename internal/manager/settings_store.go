@@ -71,9 +71,6 @@ func newSQLiteSettingsStore(path string) (SettingsStore, error) {
 		return nil, err
 	}
 	store := &sqliteSettingsStore{db: db}
-	if _, err := store.get("default_lang", langEN); err != nil {
-		return nil, err
-	}
 	if _, err := store.get("setup_completed", "false"); err != nil {
 		return nil, err
 	}
@@ -81,13 +78,13 @@ func newSQLiteSettingsStore(path string) (SettingsStore, error) {
 }
 
 func (s *sqliteSettingsStore) GetDefaultLanguage() (string, error) {
-	value, err := s.get("default_lang", langEN)
+	value, err := s.get("default_lang", "")
 	if err != nil {
 		return "", err
 	}
 	lang := normalizeLanguage(value)
 	if !isSupportedLanguage(lang) {
-		return langEN, nil
+		return "", nil
 	}
 	return lang, nil
 }

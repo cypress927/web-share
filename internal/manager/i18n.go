@@ -113,8 +113,8 @@ var i18n = map[string]map[string]string{
 		"lang.zh":                            "中文",
 		"lang.en":                            "English",
 		"lang.switch":                        "语言",
-		"setup.title":                        "初始化 Web Share",
-		"setup.subtitle":                     "通过这个本地页面完成语言选择、右键菜单安装、托盘启动和开机自启设置。",
+		"setup.title":                        "Web Share 本地设置",
+		"setup.subtitle":                     "这是可选的本地设置页。日常使用以托盘为主，需要时再通过这里调整语言、右键菜单、托盘和开机自启。",
 		"setup.section_language":             "默认语言",
 		"setup.section_actions":              "初始化动作",
 		"setup.section_status":               "当前状态",
@@ -139,7 +139,7 @@ var i18n = map[string]map[string]string{
 		"setup.apply_ok":                     "初始化设置已应用。",
 		"setup.apply_failed":                 "初始化设置应用失败。",
 		"system.title":                       "系统设置",
-		"system.subtitle":                    "在这里调整默认语言、右键菜单、开机自启、托盘和初始化状态。",
+		"system.subtitle":                    "在这里调整默认语言和 Windows 集成项。移除右键菜单或开机自启后，你可以退出程序并手动删除可执行文件与本地数据。",
 		"system.section_status":              "当前状态",
 		"system.section_language":            "默认语言",
 		"system.section_actions":             "系统操作",
@@ -150,6 +150,7 @@ var i18n = map[string]map[string]string{
 		"system.action_disable_autostart":    "禁用开机自启",
 		"system.action_start_tray":           "启动托盘",
 		"system.action_stop_tray":            "停止托盘",
+		"system.action_stop_program":         "停止程序",
 		"system.action_mark_setup_done":      "标记初始化完成",
 		"system.action_mark_setup_todo":      "标记未完成初始化",
 		"system.apply_ok":                    "系统设置已应用。",
@@ -252,8 +253,8 @@ var i18n = map[string]map[string]string{
 		"lang.zh":                            "中文",
 		"lang.en":                            "English",
 		"lang.switch":                        "Language",
-		"setup.title":                        "Set Up Web Share",
-		"setup.subtitle":                     "Use this local page to choose language, install context menu, start tray, and enable auto start.",
+		"setup.title":                        "Web Share Local Settings",
+		"setup.subtitle":                     "This optional local page is a settings center. Daily use is tray-first, and you can adjust language, context menu, tray, and auto start here when needed.",
 		"setup.section_language":             "Default Language",
 		"setup.section_actions":              "Setup Actions",
 		"setup.section_status":               "Current Status",
@@ -278,7 +279,7 @@ var i18n = map[string]map[string]string{
 		"setup.apply_ok":                     "Setup settings applied.",
 		"setup.apply_failed":                 "Failed to apply setup settings.",
 		"system.title":                       "System Settings",
-		"system.subtitle":                    "Adjust default language, context menu, auto start, tray, and setup state here.",
+		"system.subtitle":                    "Adjust default language and Windows integration here. After removing context menu or auto start, you can exit the program and delete the executable and local data manually.",
 		"system.section_status":              "Current Status",
 		"system.section_language":            "Default Language",
 		"system.section_actions":             "System Actions",
@@ -289,6 +290,7 @@ var i18n = map[string]map[string]string{
 		"system.action_disable_autostart":    "Disable Auto Start",
 		"system.action_start_tray":           "Start Tray",
 		"system.action_stop_tray":            "Stop Tray",
+		"system.action_stop_program":         "Stop Program",
 		"system.action_mark_setup_done":      "Mark Setup Completed",
 		"system.action_mark_setup_todo":      "Mark Setup Not Completed",
 		"system.apply_ok":                    "System settings applied.",
@@ -391,15 +393,7 @@ func SystemDefaultLanguage() string {
 	if err != nil {
 		return langEN
 	}
-	lang, err := store.GetDefaultLanguage()
-	if err != nil {
-		return langEN
-	}
-	lang = normalizeLanguage(lang)
-	if !isSupportedLanguage(lang) {
-		return langEN
-	}
-	return lang
+	return ensureSettingsDefaultLanguage(store)
 }
 
 func SetSystemDefaultLanguage(lang string) error {
@@ -433,4 +427,27 @@ func SetupCompleted() bool {
 		return false
 	}
 	return done
+}
+
+func ensureSettingsDefaultLanguage(store SettingsStore) string {
+	if store == nil {
+		return langEN
+	}
+
+	lang, err := store.GetDefaultLanguage()
+	if err == nil {
+		lang = normalizeLanguage(lang)
+		if isSupportedLanguage(lang) {
+			return lang
+		}
+	}
+
+	lang = normalizeLanguage(detectSystemLanguage())
+	if !isSupportedLanguage(lang) {
+		lang = langEN
+	}
+	if err := store.SetDefaultLanguage(lang); err != nil {
+		return lang
+	}
+	return lang
 }

@@ -1,456 +1,338 @@
-# Web Setup Console Plan
+# Tray-First Usage Plan
 
 ## Goal
 
-Move first-run setup, Windows integration, and runtime configuration into the local Web UI.
-
-Target user flow:
+Adjust the product to a tray-first usage model:
 
 1. User double-clicks `web-share.exe`
-2. Program starts the local manager
-3. Browser opens `http://127.0.0.1:21910/setup`
-4. User completes language selection and Windows integration from the page
+2. Program starts in the background
+3. Tray icon appears
+4. A startup-complete notification is shown
+5. User opens the management page from the tray menu when needed
+6. Web pages are used as a settings center, not as a mandatory first-run wizard
 
-After setup is complete, the default entry page becomes `http://127.0.0.1:21910/manage`.
+This replaces the previous direction where double-clicking the program immediately opened `/setup` or `/manage`.
 
-## Why
+## Target User Experience
 
-Current initialization still feels fragmented:
+### Main Entry
 
-- built-in CLI commands exist
-- PowerShell scripts still exist
-- right-click flow starts the manager implicitly
-- tray is a separate runtime surface
+Double-clicking `web-share.exe` should do this by default:
 
-For end users, the cleanest model is:
+- start the local manager
+- start the tray
+- show a startup-complete notification
+- keep the program in the background
+- not automatically open the browser
 
-- one executable
-- one browser-based setup page
-- one browser-based management page
+If the program is already running:
 
-## Product Direction
+- do not open a second tray icon
+- optionally show an “already running” notification, or stay silent
 
-Use Web as the primary control surface for:
+### Tray
 
-- first-run initialization
-- language selection
-- context-menu installation
-- auto-start enable or disable
-- tray start or stop
-- repair actions
-- uninstall actions
+The tray remains the main visible control entry.
 
-CLI commands remain available, but become secondary and mainly useful for power users or development.
+Required tray behavior:
 
-## Scope
+- tray icon is visible after launch
+- tray provides `Open Manager`
+- tray provides `Share Clipboard`
+- tray provides `Exit Program`
 
-### In Scope
+### Web
 
-- first-run setup page
-- system settings page inside manager
-- status checks for Windows integration
-- Web-triggered install, repair, and uninstall actions
-- browser auto-open behavior on first launch
+The Web UI becomes a settings and management center:
 
-### Out of Scope
+- share management stays in `/manage`
+- system settings stay in `/manage/settings/system`
+- `/setup` is no longer the default page opened on launch
 
-- replacing tray with Web
-- replacing right-click sharing flow
-- remote administration from other devices
-- elevation and machine-wide install
+### Default Language
 
-This plan is for per-user installation under `HKCU`.
+The software default language should follow the system language on first run.
 
-## User Flows
+Behavior:
 
-### First Run
+- if there is no saved default language yet
+- read Windows/system language
+- normalize to `en-US` or `zh-CN`
+- persist that as the software default language
 
-1. User launches `web-share.exe`
-2. App ensures local manager is running
-3. App checks `setup_completed`
-4. If `false`, app opens `/setup`
-5. User selects:
-   - default language
-   - install context menu
-   - enable auto start
-   - start tray now
-6. User clicks `Finish Setup`
-7. App persists settings, applies integration, and redirects to `/manage`
+After first initialization:
 
-### Normal Launch
+- the saved value becomes the program default
+- user can change it from the Web settings page
 
-1. User launches `web-share.exe`
-2. App ensures manager is running
-3. App checks `setup_completed`
-4. If `true`, app opens `/manage`
+### Right-Click Menu
 
-### Repair
+The context menu should be installed automatically by default when the user launches the program.
 
-User opens `Manage -> System Settings` and clicks:
+Behavior:
 
-- reinstall context menu
-- re-enable auto start
-- restart tray
-- repair all integration
+- on startup, check whether context menu is installed
+- if missing, install it automatically
+- if installation fails, keep the program running and show a notification
 
-### Uninstall Integration
+### Settings and Self-Uninstall
 
-User opens `Manage -> System Settings` and clicks:
+The Web settings page should allow the user to remove integration items:
 
-- remove context menu
+- uninstall context menu
 - disable auto start
 - stop tray
-- uninstall integration
+- stop program
 
-Optional destructive action:
+The intended final uninstall path is:
 
-- remove local data
+1. user removes integration from Web settings
+2. user deletes `web-share.exe`
+3. user optionally deletes local data directory
 
-## Architecture
+No separate uninstall executable is required for the normal user flow.
 
-### Entry Model
+## Why This Direction
 
-Add a default no-argument entry behavior:
+This model is simpler for normal users:
 
-- if manager is not running, start manager
-- query local setup status
+- one executable
+- one obvious action: double-click to run
+- one persistent control point: tray icon
+- one optional settings surface: local Web page
+
+It avoids forcing users into a browser flow before the tray exists.
+
+It also better matches the character of this product:
+
+- background utility
+- file sharing helper
+- Windows shell integration tool
+
+## Current Status
+
+The main tray-first flow is now aligned in code.
+
+### Implemented
+
+- manager can run in background
+- tray exists
+- startup notifications exist
+- tray can open manager
+- Web system settings page exists
+- context menu install/uninstall exists
+- auto-start enable/disable exists
+- double-click no longer opens browser automatically
+- default language is initialized from system language on first run
+- context menu is auto-installed on normal launch if missing
+
+### Remaining Work
+
+- `/setup` still exists as an optional page, though it is no longer the default launch path
+- the current system page can now stop the whole program, but uninstall is still “remove integration first, then delete files manually”
+
+## Required Changes
+
+### 1. Change Default Launch Behavior
+
+Update no-arg launch behavior in [app.go](C:/Users/zhjun/Desktop/code/web-share/internal/app/app.go):
+
+Current behavior:
+
+- ensure manager
+- ensure tray
 - open `/setup` or `/manage`
 
-Suggested command behavior:
+Target behavior:
 
-- `web-share.exe`
-  - user-facing default launcher
-- `web-share.exe run-manager`
-  - background manager only
-- `web-share.exe tray`
-  - tray only
-- `web-share.exe enqueue ...`
-  - share target path
+- ensure manager
+- ensure tray
+- auto-install context menu if missing
+- show startup notification
+- do not open browser
 
-Keep current CLI commands, but treat them as implementation tools:
+Optional behavior:
 
-- `install`
-- `start`
-- `repair`
-- `uninstall`
+- if user explicitly launches with a CLI flag later, browser opening can still be supported
 
-## Data Model
+### 2. Initialize Default Language from System
 
-Extend the settings store with:
+Add first-run default language initialization.
 
-- `default_lang`
-- `setup_completed`
-- `auto_open_browser`
-- `autostart_mode`
+Suggested logic:
 
-Recommended values:
+- if `default_lang` is absent or empty
+- detect Windows/system preferred UI language
+- normalize to `zh-CN` or `en-US`
+- save into settings store
 
-- `setup_completed`: `true` or `false`
-- `auto_open_browser`: `true` or `false`
-- `autostart_mode`: `off` or `run_key`
+This should happen before tray labels and notifications are created.
 
-Avoid overdesign here. These settings are enough for the first Web-based setup version.
+### 3. Auto-Install Context Menu on Launch
 
-## Backend Changes
+Add startup integration check:
 
-### 1. Settings Store
+- if context menu is not installed
+- install it automatically with the current default language
 
-Extend [settings_store.go](C:/Users/zhjun/Desktop/code/web-share/internal/manager/settings_store.go):
+Error handling:
 
-- `GetSetupCompleted()`
-- `SetSetupCompleted(bool)`
-- `GetAutoOpenBrowser()`
-- `SetAutoOpenBrowser(bool)`
-- `GetAutostartMode()`
-- `SetAutostartMode(string)`
-
-SQLite-backed implementation should continue to use the existing key-value table.
-
-### 2. Manager Routes
-
-Add local-only routes:
-
-- `GET /setup`
-- `GET /manage/settings/system`
-- `GET /api/setup/status`
-- `POST /api/setup/apply`
-- `POST /api/setup/context-menu/install`
-- `POST /api/setup/context-menu/uninstall`
-- `POST /api/setup/autostart/enable`
-- `POST /api/setup/autostart/disable`
-- `POST /api/setup/tray/start`
-- `POST /api/setup/tray/stop`
-- `POST /api/setup/repair`
-- `POST /api/setup/uninstall`
-
-Reuse the existing local-request guard pattern already used by:
-
-- `/api/shutdown`
-- `/api/shares`
-
-### 3. Integration Service
-
-Create a small service layer, for example:
-
-- `internal/integration`
-
-Responsibilities:
-
-- install or uninstall context menu
-- enable or disable auto start
-- start or stop tray
-- gather integration status
-- run repair actions
-
-This keeps manager handlers thin and avoids pushing Windows-specific code into HTML handlers.
-
-## Windows Integration Strategy
-
-### Context Menu
-
-Current implementation still shells out to `reg.exe`.
-
-Recommended next step:
-
-- replace `reg.exe` calls with Go registry API
-- use `golang.org/x/sys/windows/registry`
-
-Benefits:
-
-- no command window flicker
-- better error handling
-- simpler Web-triggered operations
-
-### Auto Start
-
-Recommended implementation:
-
-- use `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
-
-Do not keep scheduled tasks as the primary approach for user setup.
-
-Reason:
-
-- simpler
-- per-user
-- no `schtasks.exe`
-- fewer visible system side effects
-- easier to manage from Go and Web
-
-Scheduled tasks can remain as an advanced fallback only if needed later.
+- failure should not stop startup
+- surface failure through notification and logs
 
 ### Password Prompt
 
-Current folder-password right-click flow still relies on `wscript.exe` and generated VBS.
+Current state:
 
-Recommended later change:
+- folder password sharing still uses `wscript.exe` plus generated `VBS InputBox`
 
-- replace VBS prompt with a tiny Go native dialog
+Target state:
 
-This is not required for the first Web-setup milestone, but it should stay on the cleanup list.
+- replace the VBS password prompt with a Go-native Windows password dialog
 
-## Frontend Changes
+Reason:
 
-### Setup Page
+- reduce script dependencies
+- make the right-click share experience feel native
+- avoid visible script-related pop-up behavior
 
-New page: `/setup`
+Recommended implementation:
 
-Sections:
+- use a lightweight native Win32 dialog
+- do not introduce a large GUI framework just for password input
 
-1. Welcome
-   - what Web Share does
-   - manager address
-2. Language
-   - English / 中文
-3. Windows Integration
-   - install context menu
-   - enable auto start
-   - start tray now
-4. Status
-   - manager running
-   - tray running
-   - context menu installed
-   - auto start enabled
-5. Actions
-   - finish setup
-   - repair integration
-   - skip for now
+### 4. Reposition `/setup`
 
-### System Settings Page
+`/setup` should no longer be the mandatory first screen.
 
-New page under manager:
+Options:
 
-- `/manage/settings/system`
+- keep it as a lightweight onboarding/status page
+- or merge it gradually into `/manage/settings/system`
 
-Sections:
+Recommended immediate choice:
+
+- keep `/setup` temporarily
+- remove it from default launch path
+- let tray open `/manage`
+
+### 5. Expand System Settings Actions
+
+The system settings page should remain the place to manage integration:
 
 - default language
-- context menu status and reinstall button
-- auto start status and toggle
-- tray status and restart button
-- uninstall integration
-- uninstall integration plus local data
+- context menu install/uninstall
+- auto-start enable/disable
+- tray start/stop
+- setup state markers if still needed
 
-### UI Behavior
+Potential next addition:
 
-Keep actions optimistic but explicit:
+- `Stop Program`
 
-- disable buttons while request is running
-- show inline success or error state
-- refresh status after each action
+This can call the existing local shutdown endpoint.
 
-Do not open new windows for each action.
+## Product Model After Change
 
-## i18n
+### User Sees
 
-Add translation keys for:
+- one executable
+- one tray icon
+- one startup notification
+- one optional browser-based settings page
 
-- setup page title and description
-- integration status labels
-- install and uninstall button labels
-- repair and finish-setup messages
-- system settings section labels
+### User Does Not Need
 
-The setup page must honor:
+- PowerShell scripts
+- manual install command
+- manual first-run setup page
+- scheduled task management
 
-- query-string language override
-- current session language
-- default system language
+### User Can Still Do
 
-This should follow the same rules already used by the existing pages.
+- right-click share files and folders
+- share clipboard from tray
+- open manager from tray
+- change language and integration settings in Web
 
-## Startup Behavior
+## Technical Direction
 
-### Desired Behavior
+### Tray-First Startup
 
-When user runs `web-share.exe` directly:
+The no-argument launch path becomes the main product path.
 
-1. ensure manager is running
-2. determine setup state
-3. open browser to `/setup` or `/manage`
-4. optionally ensure tray is running if setup already completed
+This should be treated as the primary runtime mode.
 
-### Suggested Implementation
+### System Language Detection
 
-Add a default launcher path in [app.go](C:/Users/zhjun/Desktop/code/web-share/internal/app/app.go):
+Use Windows APIs or an equivalent reliable method to determine the system UI language on first run.
 
-- if no arguments:
-  - start manager if needed
-  - query `setup_completed`
-  - open browser to the correct page
+If full detection is unavailable:
 
-This gives a clean double-click experience.
+- fall back to existing browser/request language logic only as a secondary heuristic
 
-## Status Model
+The persisted program default should remain stable after first initialization.
 
-`GET /api/setup/status` should return:
+### Context Menu Language
 
-- `defaultLanguage`
-- `setupCompleted`
-- `managerRunning`
-- `trayRunning`
-- `contextMenuInstalled`
-- `autostartEnabled`
-- `autostartMode`
-- `dbPath`
-- `manageURL`
-- `setupURL`
+Context menu language should continue to be derived from the saved default language.
 
-This becomes the single source of truth for the setup UI.
+If the user changes language from Web settings:
 
-## Security Model
+- persist new default language
+- reinstall context menu with new labels
+- restart tray so menu text updates immediately
 
-These endpoints should remain local-only.
+### Auto Start
 
-Rules:
+The current native `Run` registry implementation is the desired long-term direction.
 
-- reject non-local requests
-- no CORS exposure
-- only allow actions from `127.0.0.1` or loopback
+No need to return to Scheduled Task for the main path.
 
-This is consistent with the current manager control surface.
+Legacy PowerShell scripts may remain in the repo for compatibility, but should not define product behavior.
 
 ## Migration Plan
 
 ### Phase 1
 
-- add `setup_completed` setting
-- add `/setup`
-- add `/api/setup/status`
-- add browser-launch default entry
+- stop auto-opening browser on no-arg launch
+- ensure tray starts
+- show startup-complete notification
 
 ### Phase 2
 
-- add Web actions for:
-  - context menu
-  - auto start
-  - tray control
-- add `/manage/settings/system`
+- initialize default language from system language on first run
+- persist it before tray/menu creation
 
 ### Phase 3
 
-- replace `reg.exe` with registry API
-- replace `schtasks.exe` usage with Run-key auto start
+- auto-install context menu on startup when missing
+- show error notification on failure
 
 ### Phase 4
 
-- optionally retire PowerShell scripts from user-facing docs
-- keep scripts only as developer utilities
+- simplify `/setup` role
+- keep `/manage/settings/system` as primary settings center
 
-## Risks
+### Phase 5
 
-### 1. Mixed Install Paths
+- add stop-program action in Web settings if desired
+- update all user-facing docs to tray-first language
 
-If CLI, Web, and legacy scripts all remain active, behavior can drift.
+### Phase 6
 
-Mitigation:
-
-- define Web as the primary user path
-- define CLI as advanced/manual path
-- define scripts as legacy/dev path
-
-### 2. Tray State Drift
-
-The Web page may say tray is stopped while tray is starting or exiting.
-
-Mitigation:
-
-- use current mutex-based detection
-- refresh status after each action
-
-### 3. Right-Click Language Drift
-
-Changing language from Web must still reinstall context menu with the new labels.
-
-Mitigation:
-
-- continue to route language changes through the same apply-system-language logic
-
-## Recommended First Implementation Slice
-
-Start with the smallest useful end-to-end slice:
-
-1. make no-arg launch open the browser
-2. add `setup_completed`
-3. add `/setup`
-4. add status API
-5. allow language selection and finish-setup
-
-Do not start with full uninstall or full repair UI.
-
-Once the setup page exists and becomes the main entry, the rest can be layered onto it cleanly.
+- replace VBS password prompt with Go-native Win32 password dialog
 
 ## Acceptance Criteria
 
-This feature is complete when:
+This plan is complete when:
 
-- double-clicking `web-share.exe` opens a browser page
-- first run opens `/setup`
-- setup page can set default language
-- setup page can install context menu
-- setup page can enable auto start
-- setup page can start tray
-- setup completion is persisted
-- later launches open `/manage`
-- system settings page can reconfigure integration
-
+- double-clicking `web-share.exe` starts the background service and tray
+- a startup-complete notification appears
+- tray can open the manager page
+- browser does not auto-open on normal launch
+- default language follows system language on first run
+- context menu is installed automatically on first launch if missing
+- Web settings can uninstall context menu
+- Web settings can disable auto start
+- user can remove the executable and local data manually after removing integration
