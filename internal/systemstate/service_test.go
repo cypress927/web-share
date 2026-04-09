@@ -314,6 +314,25 @@ func TestEnsureTrayRunningStartsWhenMissing(t *testing.T) {
 	}
 }
 
+func TestEnsureTrayRunningWaitsForAsyncReadyState(t *testing.T) {
+	port := &fakeTrayPort{
+		inspectResults: []InspectResult{{Installed: false}, {Installed: false}, {Installed: false}, {Installed: true}},
+	}
+	service := NewService(fakeLogger{})
+	service.Tray = port
+
+	result := service.EnsureTrayRunning("C:\\app.exe")
+	if !result.OK || !result.Changed {
+		t.Fatalf("expected changed OK result after retry, got %+v", result)
+	}
+	if port.startCalls != 1 {
+		t.Fatalf("expected one start call, got %d", port.startCalls)
+	}
+	if port.inspectCalls < 4 {
+		t.Fatalf("expected multiple inspect calls, got %d", port.inspectCalls)
+	}
+}
+
 func TestEnsureTrayStoppedWarnsWhenAlreadyStopped(t *testing.T) {
 	port := &fakeTrayPort{
 		inspectResults: []InspectResult{{Installed: false}},

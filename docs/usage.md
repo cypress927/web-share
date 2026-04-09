@@ -98,7 +98,7 @@ Note:
 
 - Built-in `install/start/uninstall` now uses registry-based auto start
 - Legacy scripts under `scripts/` still manage logon startup via Scheduled Task for compatibility
-- local system-action logs are written under `%LOCALAPPDATA%\WebShare\logs`
+- local system-action logs are written to `web-share.log` beside `web-share.exe`, with rotated backups `web-share.log.1` to `web-share.log.5`
 
 If you want to install context menu only:
 
@@ -393,7 +393,7 @@ go build -ldflags="-H=windowsgui" -o .\web-share.exe .\cmd\web-share
 
 - 内置 `install/start/uninstall` 已改为使用注册表自启动
 - `scripts/` 目录下的旧脚本仍保留计划任务实现，作为兼容入口
-- 系统动作日志默认写入 `%LOCALAPPDATA%\WebShare\logs`
+- 系统动作日志默认写入程序目录下的 `web-share.log`，并自动轮转为 `web-share.log.1` 到 `web-share.log.5`
 
 如果只想单独安装右键菜单：
 

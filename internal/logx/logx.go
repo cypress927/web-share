@@ -1,10 +1,11 @@
 package logx
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -34,6 +35,12 @@ type fileLogger struct {
 	mu sync.Mutex
 }
 
+const (
+	logFileName   = "web-share.log"
+	maxLogSize    = 512 * 1024
+	maxLogBackups = 5
+)
+
 func New() Logger {
 	return &fileLogger{}
 }
@@ -58,28 +65,14 @@ func (l *fileLogger) write(level Level, msg string, fields ...Field) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	path, err := resolveLogPath(time.Now())
+	path, err := resolveLogPath()
 	if err != nil {
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return
 	}
-
-	payload := map[string]any{
-		"time":    time.Now().Format(time.RFC3339),
-		"level":   level,
-		"message": msg,
-	}
-	for _, field := range fields {
-		if field.Key == "" {
-			continue
-		}
-		payload[field.Key] = field.Value
-	}
-
-	raw, err := json.Marshal(payload)
-	if err != nil {
+	if err := rotateIfNeeded(path); err != nil {
 		return
 	}
 
@@ -89,17 +82,68 @@ func (l *fileLogger) write(level Level, msg string, fields ...Field) {
 	}
 	defer f.Close()
 
-	_, _ = fmt.Fprintln(f, string(raw))
+	_, _ = fmt.Fprintln(f, formatLine(time.Now(), level, msg, fields...))
 }
 
-func resolveLogPath(now time.Time) (string, error) {
-	baseDir := os.Getenv("LOCALAPPDATA")
-	if baseDir == "" {
-		var err error
-		baseDir, err = os.UserConfigDir()
-		if err != nil {
-			return "", err
+func resolveLogPath() (string, error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(exePath), logFileName), nil
+}
+
+func rotateIfNeeded(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if info.Size() < maxLogSize {
+		return nil
+	}
+	_ = os.Remove(rotatedLogPath(path, maxLogBackups))
+	for i := maxLogBackups - 1; i >= 1; i-- {
+		src := rotatedLogPath(path, i)
+		if _, err := os.Stat(src); err == nil {
+			if err := os.Rename(src, rotatedLogPath(path, i+1)); err != nil {
+				return err
+			}
 		}
 	}
-	return filepath.Join(baseDir, "WebShare", "logs", now.Format("2006-01-02")+".log"), nil
+	return os.Rename(path, rotatedLogPath(path, 1))
+}
+
+func rotatedLogPath(path string, index int) string {
+	return path + "." + strconv.Itoa(index)
+}
+
+func formatLine(now time.Time, level Level, msg string, fields ...Field) string {
+	parts := []string{
+		now.Format("2006-01-02 15:04:05"),
+		"[" + strings.ToUpper(string(level)) + "]",
+		msg,
+	}
+	for _, field := range fields {
+		if field.Key == "" {
+			continue
+		}
+		parts = append(parts, field.Key+"="+formatFieldValue(field.Value))
+	}
+	return strings.Join(parts, " ")
+}
+
+func formatFieldValue(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strconv.Quote(v)
+	case fmt.Stringer:
+		return strconv.Quote(v.String())
+	case []string:
+		return strconv.Quote(strings.Join(v, ", "))
+	default:
+		return strconv.Quote(fmt.Sprint(value))
+	}
 }

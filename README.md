@@ -72,7 +72,7 @@ Note:
 - `web-share.exe` now includes built-in install/start/repair/uninstall commands
 - PowerShell scripts are still available as wrapper entry points
 - Rebuild the executable first if you are using an older binary
-- local system-action logs are written under `%LOCALAPPDATA%\WebShare\logs`
+- local system-action logs are written to `web-share.log` beside `web-share.exe`, with rotated backups `web-share.log.1` to `web-share.log.5`
 
 ### Setup
 
@@ -371,7 +371,7 @@ go build -o .\web-share.exe .\cmd\web-share
 - `web-share.exe` 现在内置了 `install/start/repair/uninstall` 命令
 - PowerShell 脚本仍然保留，用作兼容包装入口
 - 如果本地是旧版可执行文件，请先重新编译
-- 系统动作日志默认写入 `%LOCALAPPDATA%\WebShare\logs`
+- 系统动作日志默认写入程序目录下的 `web-share.log`，并自动轮转为 `web-share.log.1` 到 `web-share.log.5`
 
 ### 初始化安装
 

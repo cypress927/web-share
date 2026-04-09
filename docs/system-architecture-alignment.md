@@ -15,7 +15,7 @@
 - 文档还主要从“功能和用户行为”角度描述系统，没有说明当前已经引入了 `internal/systemstate` 作为系统状态编排层。
 - 文档没有说明当前系统集成操作已经逐步改成“目标状态驱动”的实现方式。
 - 文档没有说明日志系统已经存在，日志写入路径为：
-  - `%LOCALAPPDATA%\WebShare\logs\YYYY-MM-DD.log`
+  - `web-share.log` in the executable directory, with rotated backups `web-share.log.1` to `web-share.log.5`
 - 文档没有说明 `setup` 和 `system settings` 页面现在已经支持 `success / warning / error` 三态反馈。
 - 文档没有说明右键菜单、自启动、托盘、manager 的启动/停止已经主要通过统一编排层处理，而不是入口各自维护一套状态判断。
 

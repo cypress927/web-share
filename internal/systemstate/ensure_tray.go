@@ -1,6 +1,13 @@
 package systemstate
 
-import "web-share/internal/logx"
+import (
+	"time"
+
+	"web-share/internal/logx"
+)
+
+const trayVerifyTimeout = 3 * time.Second
+const trayVerifyInterval = 120 * time.Millisecond
 
 func (s *Service) EnsureTrayRunning(exePath string) OperationResult {
 	if s.Tray == nil {
@@ -17,7 +24,7 @@ func (s *Service) EnsureTrayRunning(exePath string) OperationResult {
 		s.Logger.Error("tray start failed", logx.Field{Key: "error", Value: err.Error()})
 		return Failure("Failed to start tray.", err.Error())
 	}
-	verify, err := s.Tray.Inspect()
+	verify, err := s.waitForTrayState(true)
 	if err != nil {
 		s.Logger.Error("tray start recheck failed", logx.Field{Key: "error", Value: err.Error()})
 		return Failure("Failed to verify tray state.", err.Error())
@@ -43,7 +50,7 @@ func (s *Service) EnsureTrayStopped() OperationResult {
 		s.Logger.Error("tray stop failed", logx.Field{Key: "error", Value: err.Error()})
 		return Failure("Failed to stop tray.", err.Error())
 	}
-	verify, err := s.Tray.Inspect()
+	verify, err := s.waitForTrayState(false)
 	if err != nil {
 		s.Logger.Error("tray stop recheck failed", logx.Field{Key: "error", Value: err.Error()})
 		return Failure("Failed to verify tray stop state.", err.Error())
@@ -52,4 +59,27 @@ func (s *Service) EnsureTrayStopped() OperationResult {
 		return Failure("Tray did not reach the expected stopped state.", "verification failed")
 	}
 	return Success("Tray stopped.", true, cloneWarnings(state.Warnings, verify.Warnings)...)
+}
+
+func (s *Service) waitForTrayState(running bool) (InspectResult, error) {
+	deadline := time.Now().Add(trayVerifyTimeout)
+	last := InspectResult{}
+	for {
+		state, err := s.Tray.Inspect()
+		if err != nil {
+			return InspectResult{}, err
+		}
+		last = state
+		if running {
+			if state.Installed && !state.Dirty {
+				return state, nil
+			}
+		} else if !state.Installed && !state.Dirty {
+			return state, nil
+		}
+		if time.Now().After(deadline) {
+			return last, nil
+		}
+		time.Sleep(trayVerifyInterval)
+	}
 }

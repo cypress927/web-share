@@ -357,7 +357,7 @@
 
 默认日志目录为：
 
-- `%LOCALAPPDATA%\WebShare\logs\YYYY-MM-DD.log`
+- `web-share.log` beside `web-share.exe`, with rotated backups `web-share.log.1` to `web-share.log.5`
 
 剪贴板分享补充行为：
 

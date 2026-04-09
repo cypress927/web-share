@@ -330,7 +330,7 @@ type OperationResult struct {
 
 建议初期写入：
 
-- `%LOCALAPPDATA%\WebShare\logs\YYYY-MM-DD.log`
+- `web-share.log` in the executable directory, with rotated backups `web-share.log.1` to `web-share.log.5`
 
 后续再决定是否做轮转或大小控制。
 
