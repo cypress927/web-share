@@ -978,8 +978,9 @@ const systemHTML = `{{define "system"}}<!DOCTYPE html>
         form.addEventListener('submit', async (event) => {
           event.preventDefault();
           const body = new URLSearchParams(new FormData(form));
+          const actionURL = form.getAttribute('action') || window.location.href;
           try {
-            const resp = await fetch(form.action, {
+            const resp = await fetch(actionURL, {
               method: 'POST',
               headers: { 'Accept': 'application/json', 'X-Requested-With': 'fetch', 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
               body: body.toString()
