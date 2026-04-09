@@ -260,6 +260,7 @@ Current behavior notes:
 
 - setup/system pages use local async actions with `success / warning / error` feedback
 - warning is used for already-satisfied state, repaired legacy residue, or missing old objects
+- setup/system pages are mobile-friendly and use floating toast feedback instead of top-of-page banners
 - system-action logs are kept locally for troubleshooting when a user cannot directly observe the result
 
 For the normal user flow, you can also:
@@ -560,6 +561,7 @@ go build -o .\web-share.exe .\cmd\web-share
 
 - `setup` / `system settings` 页面已经支持 `success / warning / error` 三态反馈
 - warning 用于表示“已在目标状态”“检测到旧残留并已修复”“某些旧对象原本已缺失”
+- `setup` / `system settings` 页面已适配移动端，反馈采用浮动气泡而不是页面顶部提示条
 - 系统动作的详细记录会落到本地日志，便于排查用户无感失败
 
 对普通用户，也可以走这条更直接的路径：

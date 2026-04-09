@@ -30,6 +30,7 @@ Current settings-page behavior:
 - setup/system actions use local async requests
 - the page can show `success`, `warning`, or `error`
 - warning is used when the target state was already satisfied or an old residual state was repaired
+- setup/system pages are mobile-friendly and use floating toast feedback near the viewport edge
 
 ### Build
 
@@ -326,6 +327,7 @@ The unified uninstall script removes:
 - `setup` / `system` 页面通过本地异步请求执行动作
 - 页面会显示 `success / warning / error`
 - warning 常见于“目标状态本来已满足”或“旧残留已自动修复”
+- setup/system 页面已适配移动端，提示会以视口边缘的浮动气泡显示
 
 ### 构建
 
