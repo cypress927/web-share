@@ -901,6 +901,11 @@ const systemHTML = `{{define "system"}}<!DOCTYPE html>
           </form>
           <form class="async-action-form" method="post" action="/api/system/apply?lang={{.CurrentLang}}">
             <input type="hidden" name="default_lang" value="{{.DefaultLang}}">
+            <input type="hidden" name="action" value="uninstall_all">
+            <button type="submit">{{tr .CurrentLang "system.action_uninstall_all"}}</button>
+          </form>
+          <form class="async-action-form" method="post" action="/api/system/apply?lang={{.CurrentLang}}">
+            <input type="hidden" name="default_lang" value="{{.DefaultLang}}">
             <input type="hidden" name="action" value="mark_setup_done">
             <button type="submit">{{tr .CurrentLang "system.action_mark_setup_done"}}</button>
           </form>

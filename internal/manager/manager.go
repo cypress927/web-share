@@ -929,6 +929,8 @@ func (m *Manager) applySystemAction(lang, action string) systemstate.OperationRe
 			},
 		}
 		return service.EnsureProgramStopped()
+	case "uninstall_all":
+		return m.uninstallSystemIntegration(lang, service)
 	case "mark_setup_done":
 		if err := m.settingsStore().SetSetupCompleted(true); err != nil {
 			return systemstate.Failure("Failed to mark setup completed.", err.Error())
@@ -941,6 +943,74 @@ func (m *Manager) applySystemAction(lang, action string) systemstate.OperationRe
 		return systemstate.Success("Setup marked as pending.", true)
 	default:
 		return systemstate.Failure("Unsupported system action.", "unsupported action")
+	}
+}
+
+func (m *Manager) uninstallSystemIntegration(lang string, service *systemstate.Service) systemstate.OperationResult {
+	command := ""
+	exePath, err := os.Executable()
+	if err == nil {
+		command = shell.QuoteCommand(exePath, "start", "-lang", lang, "-notify-start=true")
+	}
+
+	warnings := make([]string, 0, 8)
+	changed := false
+
+	steps := []systemstate.OperationResult{
+		service.EnsureContextMenuRemoved(exePath),
+		service.EnsureAutostartDisabled("WebShare.AutoStart", command),
+		service.EnsureTrayStopped(),
+	}
+	for _, step := range steps {
+		warnings = append(warnings, step.Warnings...)
+		if !step.OK {
+			return systemstate.OperationResult{
+				OK:       false,
+				Changed:  changed || step.Changed,
+				Message:  step.Message,
+				Warnings: warnings,
+				Errors:   step.Errors,
+			}
+		}
+		changed = changed || step.Changed
+	}
+
+	if err := m.settingsStore().SetSetupCompleted(false); err != nil {
+		return systemstate.OperationResult{
+			OK:       false,
+			Changed:  changed,
+			Message:  "Failed to mark setup as not completed.",
+			Warnings: warnings,
+			Errors:   []string{err.Error()},
+		}
+	}
+
+	service.Program = programShutdownPort{
+		shutdown: func() error {
+			go func() {
+				time.Sleep(150 * time.Millisecond)
+				m.shutdownProgram()
+			}()
+			return nil
+		},
+	}
+	stopResult := service.EnsureProgramStopped()
+	warnings = append(warnings, stopResult.Warnings...)
+	if !stopResult.OK {
+		return systemstate.OperationResult{
+			OK:       false,
+			Changed:  changed || stopResult.Changed,
+			Message:  stopResult.Message,
+			Warnings: warnings,
+			Errors:   stopResult.Errors,
+		}
+	}
+
+	return systemstate.OperationResult{
+		OK:       true,
+		Changed:  true,
+		Message:  "System integration removed. You can now delete the program folder.",
+		Warnings: warnings,
 	}
 }
 
