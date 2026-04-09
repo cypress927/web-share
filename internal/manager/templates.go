@@ -425,9 +425,18 @@ const setupHTML = `{{define "setup"}}<!DOCTYPE html>
     .status-value.ok { color: var(--ok); }
     .status-value.warn { color: var(--warm); }
     .flash {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 9999;
+      width: min(420px, calc(100vw - 24px));
       padding: 12px 14px;
-      border-radius: 14px;
+      border-radius: 16px;
       font-size: 14px;
+      line-height: 1.5;
+      box-shadow: 0 18px 40px rgba(39, 29, 20, 0.18);
+      backdrop-filter: blur(10px);
+      white-space: pre-line;
     }
     .flash.ok {
       background: rgba(31,122,82,0.1);
@@ -440,7 +449,6 @@ const setupHTML = `{{define "setup"}}<!DOCTYPE html>
     .flash.warn {
       background: rgba(192,90,43,0.12);
       color: var(--warm);
-      white-space: pre-line;
     }
     .flash[hidden] { display: none; }
     .flash[hidden] { display: none; }
@@ -494,6 +502,14 @@ const setupHTML = `{{define "setup"}}<!DOCTYPE html>
       body { padding: 10px; }
       .hero, .content { padding: 16px; }
       .status-grid { grid-template-columns: 1fr; }
+      .actions { flex-direction: column; }
+      .actions > * { width: 100%; }
+      .link-btn, button { width: 100%; }
+      .flash {
+        right: 12px;
+        bottom: 12px;
+        width: calc(100vw - 24px);
+      }
     }
   </style>
 </head>
@@ -628,7 +644,8 @@ const setupHTML = `{{define "setup"}}<!DOCTYPE html>
         event.preventDefault();
         const body = new URLSearchParams(new FormData(form));
         try {
-          const resp = await fetch(form.action, {
+          const actionURL = form.getAttribute('action') || window.location.href;
+          const resp = await fetch(actionURL, {
             method: 'POST',
             headers: { 'Accept': 'application/json', 'X-Requested-With': 'fetch', 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
             body: body.toString()
@@ -754,9 +771,18 @@ const systemHTML = `{{define "system"}}<!DOCTYPE html>
     .status-value.ok { color: var(--ok); }
     .status-value.warn { color: var(--warm); }
     .flash {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 9999;
+      width: min(420px, calc(100vw - 24px));
       padding: 12px 14px;
-      border-radius: 14px;
+      border-radius: 16px;
       font-size: 14px;
+      line-height: 1.5;
+      box-shadow: 0 18px 40px rgba(39, 29, 20, 0.18);
+      backdrop-filter: blur(10px);
+      white-space: pre-line;
     }
     .flash.ok {
       background: rgba(31,122,82,0.1);
@@ -765,6 +791,10 @@ const systemHTML = `{{define "system"}}<!DOCTYPE html>
     .flash.err {
       background: rgba(157,53,39,0.1);
       color: var(--err);
+    }
+    .flash.warn {
+      background: rgba(192,90,43,0.12);
+      color: var(--warm);
     }
     .action-grid {
       display: grid;
@@ -811,6 +841,14 @@ const systemHTML = `{{define "system"}}<!DOCTYPE html>
       body { padding: 10px; }
       .hero, .content { padding: 16px; }
       .status-grid, .action-grid { grid-template-columns: 1fr; }
+      .link-row { flex-direction: column; }
+      .link-row > * { width: 100%; }
+      .link-btn { width: 100%; }
+      .flash {
+        right: 12px;
+        bottom: 12px;
+        width: calc(100vw - 24px);
+      }
     }
   </style>
 </head>

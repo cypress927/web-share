@@ -841,6 +841,7 @@ func (m *Manager) handleSystemApply(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	result := m.applySystemAction(lang, action)
+	result = localizeOperationResult(lang, result)
 	if !result.OK {
 		if wantsJSON(r) {
 			message := result.Message
@@ -1011,6 +1012,80 @@ func (m *Manager) uninstallSystemIntegration(lang string, service *systemstate.S
 		Changed:  true,
 		Message:  "System integration removed. You can now delete the program folder.",
 		Warnings: warnings,
+	}
+}
+
+func localizeOperationResult(lang string, result systemstate.OperationResult) systemstate.OperationResult {
+	result.Message = localizeOperationText(lang, result.Message)
+	for i := range result.Warnings {
+		result.Warnings[i] = localizeOperationText(lang, result.Warnings[i])
+	}
+	return result
+}
+
+func localizeOperationText(lang, text string) string {
+	if text == "" {
+		return ""
+	}
+	zh := strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh")
+	if zh {
+		switch text {
+		case "System integration removed. You can now delete the program folder.":
+			return "系统集成已移除。现在可以直接删除整个程序目录。"
+		case "Auto start entry was already missing.":
+			return "开机自启项原本就不存在。"
+		case "Auto start is already disabled.":
+			return "开机自启已经处于禁用状态。"
+		case "Auto start disabled.":
+			return "开机自启已禁用。"
+		case "Context menu entries were already missing.":
+			return "右键菜单项原本就不存在。"
+		case "Context menu is already removed.":
+			return "右键菜单已经处于卸载状态。"
+		case "Context menu removed.":
+			return "右键菜单已卸载。"
+		case "Tray was already stopped.":
+			return "托盘原本就未运行。"
+		case "Tray is already stopped.":
+			return "托盘已经处于停止状态。"
+		case "Tray stopped.":
+			return "托盘已停止。"
+		case "Program was already stopped.":
+			return "程序原本就未运行。"
+		case "Program is already stopped.":
+			return "程序已经处于停止状态。"
+		case "Program stop requested.":
+			return "已请求停止程序。"
+		case "Setup marked as completed.":
+			return "初始化已标记为完成。"
+		case "Setup marked as pending.":
+			return "初始化已标记为未完成。"
+		case "Unsupported system action.":
+			return "不支持的系统操作。"
+		}
+		return text
+	}
+
+	switch text {
+	case "System integration removed. You can now delete the program folder.",
+		"Auto start entry was already missing.",
+		"Auto start is already disabled.",
+		"Auto start disabled.",
+		"Context menu entries were already missing.",
+		"Context menu is already removed.",
+		"Context menu removed.",
+		"Tray was already stopped.",
+		"Tray is already stopped.",
+		"Tray stopped.",
+		"Program was already stopped.",
+		"Program is already stopped.",
+		"Program stop requested.",
+		"Setup marked as completed.",
+		"Setup marked as pending.",
+		"Unsupported system action.":
+		return text
+	default:
+		return text
 	}
 }
 
