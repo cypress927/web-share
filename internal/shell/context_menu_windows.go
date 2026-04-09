@@ -3,7 +3,10 @@
 package shell
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/sys/windows/registry"
@@ -34,6 +37,7 @@ func InstallContextMenuWithLanguage(exePath, lang string) error {
 		return err
 	}
 
+	_ = removeLegacyPromptScript()
 	_ = UninstallContextMenu()
 
 	if err := createKeyWithValues(fileMenuKey, map[string]string{
@@ -97,6 +101,7 @@ func UninstallContextMenu() error {
 	for _, keyPath := range keys {
 		_ = deleteKeyTree(keyPath)
 	}
+	_ = removeLegacyPromptScript()
 	return nil
 }
 
@@ -184,4 +189,20 @@ func normalizePromptLanguage(lang string) string {
 		return "zh-CN"
 	}
 	return "en-US"
+}
+
+func removeLegacyPromptScript() error {
+	baseDir := os.Getenv("LOCALAPPDATA")
+	if strings.TrimSpace(baseDir) == "" {
+		var err error
+		baseDir, err = os.UserConfigDir()
+		if err != nil {
+			return err
+		}
+	}
+	scriptPath := filepath.Join(baseDir, "WebShare", "prompt-share.vbs")
+	if err := os.Remove(scriptPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }

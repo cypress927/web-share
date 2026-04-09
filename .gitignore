@@ -6,3 +6,5 @@
 *.out
 bin/
 dist/
+web-share.log
+web-share.log.*

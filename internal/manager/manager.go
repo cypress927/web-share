@@ -306,17 +306,27 @@ func Run(cfg Config) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", mgr.handleHome)
+	mux.HandleFunc("/favicon.ico", mgr.handleFavicon)
 	mux.HandleFunc("/api/ping", mgr.handlePing)
+	mux.HandleFunc("/api/ping/", mgr.handlePing)
 	mux.HandleFunc("/api/shutdown", mgr.handleShutdown)
+	mux.HandleFunc("/api/shutdown/", mgr.handleShutdown)
 	mux.HandleFunc("/api/shares", mgr.handleCreateShare)
 	mux.HandleFunc("/api/shares/", mgr.handleShareAPI)
 	mux.HandleFunc("/manage", mgr.handleManage)
+	mux.HandleFunc("/manage/", mgr.handleManage)
 	mux.HandleFunc("/manage/settings/system", mgr.handleSystemSettings)
+	mux.HandleFunc("/manage/settings/system/", mgr.handleSystemSettings)
 	mux.HandleFunc("/manage/settings/language", mgr.handleManageLanguageSetting)
+	mux.HandleFunc("/manage/settings/language/", mgr.handleManageLanguageSetting)
 	mux.HandleFunc("/setup", mgr.handleSetup)
+	mux.HandleFunc("/setup/", mgr.handleSetup)
 	mux.HandleFunc("/api/setup/status", mgr.handleSetupStatus)
+	mux.HandleFunc("/api/setup/status/", mgr.handleSetupStatus)
 	mux.HandleFunc("/api/setup/apply", mgr.handleSetupApply)
+	mux.HandleFunc("/api/setup/apply/", mgr.handleSetupApply)
 	mux.HandleFunc("/api/system/apply", mgr.handleSystemApply)
+	mux.HandleFunc("/api/system/apply/", mgr.handleSystemApply)
 	mux.HandleFunc("/manage/shares/", mgr.handleManageShareAction)
 	mux.HandleFunc("/s/", mgr.handleShare)
 
@@ -339,11 +349,11 @@ func openSettingsStore(path string) (SettingsStore, error) {
 func resolveDBPath(path string) (string, error) {
 	dbPath := strings.TrimSpace(path)
 	if dbPath == "" {
-		cacheDir, err := os.UserCacheDir()
+		exePath, err := os.Executable()
 		if err != nil {
 			return "", err
 		}
-		dbPath = filepath.Join(cacheDir, "WebShare", "web-share.db")
+		dbPath = filepath.Join(filepath.Dir(exePath), "web-share.db")
 	}
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		return "", err
@@ -462,6 +472,10 @@ func (m *Manager) handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (m *Manager) handleFavicon(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (m *Manager) handlePing(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
@@ -552,6 +566,10 @@ func (m *Manager) handleManage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	if r.URL.Path != "/manage" && r.URL.Path != "/manage/" {
+		http.NotFound(w, r)
+		return
+	}
 	currentLang := m.currentLanguage(w, r)
 	langZHURL, langENURL := m.languageLinks(r)
 	defaultLang, _ := m.settingsStore().GetDefaultLanguage()
@@ -584,6 +602,10 @@ func (m *Manager) handleSetup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	if r.URL.Path != "/setup" && r.URL.Path != "/setup/" {
+		http.NotFound(w, r)
+		return
+	}
 	currentLang := m.currentLanguage(w, r)
 	langZHURL, langENURL := m.languageLinks(r)
 
@@ -614,6 +636,10 @@ func (m *Manager) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	if r.URL.Path != "/api/setup/status" && r.URL.Path != "/api/setup/status/" {
+		http.NotFound(w, r)
+		return
+	}
 	currentLang := m.currentLanguage(w, r)
 	m.writeJSON(w, http.StatusOK, m.setupStatus(currentLang))
 }
@@ -621,6 +647,10 @@ func (m *Manager) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 func (m *Manager) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 	if !isLocalRequest(r.RemoteAddr) {
 		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if r.URL.Path != "/api/setup/apply" && r.URL.Path != "/api/setup/apply/" {
+		http.NotFound(w, r)
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -751,6 +781,10 @@ func (m *Manager) handleSystemSettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	if r.URL.Path != "/manage/settings/system" && r.URL.Path != "/manage/settings/system/" {
+		http.NotFound(w, r)
+		return
+	}
 	currentLang := m.currentLanguage(w, r)
 	langZHURL, langENURL := m.languageLinks(r)
 	status := m.setupStatus(currentLang)
@@ -779,6 +813,10 @@ func (m *Manager) handleSystemApply(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	if r.URL.Path != "/api/system/apply" && r.URL.Path != "/api/system/apply/" {
+		http.NotFound(w, r)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -791,15 +829,17 @@ func (m *Manager) handleSystemApply(w http.ResponseWriter, r *http.Request) {
 	if !isSupportedLanguage(lang) {
 		lang = m.defaultLanguage()
 	}
-	if err := m.settingsStore().SetDefaultLanguage(lang); err != nil {
-		if wantsJSON(r) {
-			m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": tr(lang, "system.apply_failed"), "warnings": []string{}})
+	action := strings.TrimSpace(r.FormValue("action"))
+	if action == "" || action == "save_language" {
+		if err := m.settingsStore().SetDefaultLanguage(lang); err != nil {
+			if wantsJSON(r) {
+				m.writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "message": tr(lang, "system.apply_failed"), "warnings": []string{}})
+				return
+			}
+			http.Redirect(w, r, "/manage/settings/system?lang="+url.QueryEscape(lang)+"&error="+url.QueryEscape(tr(lang, "system.apply_failed")), http.StatusSeeOther)
 			return
 		}
-		http.Redirect(w, r, "/manage/settings/system?lang="+url.QueryEscape(lang)+"&error="+url.QueryEscape(tr(lang, "system.apply_failed")), http.StatusSeeOther)
-		return
 	}
-	action := strings.TrimSpace(r.FormValue("action"))
 	result := m.applySystemAction(lang, action)
 	if !result.OK {
 		if wantsJSON(r) {
@@ -841,7 +881,7 @@ func (m *Manager) setupStatus(lang string) setupStatusPayload {
 	return setupStatusPayload{
 		DefaultLanguage:      m.defaultLanguage(),
 		SetupCompleted:       setupCompleted,
-		ManagerRunning:       true,
+		ManagerRunning:       snapshot.ManagerRunning,
 		TrayRunning:          snapshot.TrayRunning,
 		ContextMenuInstalled: snapshot.ContextMenuInstalled && !snapshot.ContextMenuDirty,
 		AutostartEnabled:     snapshot.AutostartEnabled && !snapshot.AutostartDirty,

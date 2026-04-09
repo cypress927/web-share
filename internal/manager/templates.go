@@ -541,7 +541,7 @@ const setupHTML = `{{define "setup"}}<!DOCTYPE html>
           </div>
           <div class="status-item">
             <div class="status-label">{{tr .CurrentLang "setup.status_manager"}}</div>
-            <div class="status-value ok">{{tr .CurrentLang "setup.status_running"}}</div>
+            <div id="setup-status-manager" class="status-value {{if .ManagerRunning}}ok{{else}}warn{{end}}">{{if .ManagerRunning}}{{tr .CurrentLang "setup.status_running"}}{{else}}{{tr .CurrentLang "setup.status_stopped"}}{{end}}</div>
           </div>
           <div class="status-item">
             <div class="status-label">{{tr .CurrentLang "setup.status_tray"}}</div>
@@ -594,12 +594,15 @@ const setupHTML = `{{define "setup"}}<!DOCTYPE html>
       function applyStatus(status) {
         if (!status) return;
         const complete = document.getElementById('setup-status-complete');
+        const manager = document.getElementById('setup-status-manager');
         const tray = document.getElementById('setup-status-tray');
         const context = document.getElementById('setup-status-context');
         const auto = document.getElementById('setup-status-autostart');
         const lang = document.getElementById('setup-status-language');
         complete.textContent = status.setupCompleted ? labels.completed : labels.pending;
         complete.className = 'status-value ' + (status.setupCompleted ? 'ok' : 'warn');
+        manager.textContent = status.managerRunning ? labels.running : labels.stopped;
+        manager.className = 'status-value ' + (status.managerRunning ? 'ok' : 'warn');
         tray.textContent = status.trayRunning ? labels.running : labels.stopped;
         tray.className = 'status-value ' + (status.trayRunning ? 'ok' : 'warn');
         context.textContent = status.contextMenuInstalled ? labels.installed : labels.missing;
@@ -612,6 +615,15 @@ const setupHTML = `{{define "setup"}}<!DOCTYPE html>
           langSelect.value = status.defaultLanguage;
         }
       }
+      async function readActionResponse(resp) {
+        const raw = await resp.text();
+        if (!raw) return {};
+        try {
+          return JSON.parse(raw);
+        } catch (_) {
+          return { message: raw.trim() || 'Request failed' };
+        }
+      }
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
         const body = new URLSearchParams(new FormData(form));
@@ -621,15 +633,15 @@ const setupHTML = `{{define "setup"}}<!DOCTYPE html>
             headers: { 'Accept': 'application/json', 'X-Requested-With': 'fetch', 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
             body: body.toString()
           });
-          const data = await resp.json();
+          const data = await readActionResponse(resp);
           if (!resp.ok || !data.ok) {
-            setFlash('err', data.message || 'Request failed', data.warnings || data.errors || []);
+            setFlash('err', data.message || resp.statusText || 'Request failed', data.warnings || data.errors || []);
             return;
           }
           setFlash((data.warnings && data.warnings.length) ? 'warn' : 'ok', data.message || '', data.warnings || []);
           applyStatus(data.status);
-        } catch (_) {
-          setFlash('err', 'Request failed');
+        } catch (error) {
+          setFlash('err', error instanceof Error ? error.message : 'Request failed');
         }
       });
     })();
@@ -953,6 +965,15 @@ const systemHTML = `{{define "system"}}<!DOCTYPE html>
           input.value = status.defaultLanguage || input.value;
         });
       }
+      async function readActionResponse(resp) {
+        const raw = await resp.text();
+        if (!raw) return {};
+        try {
+          return JSON.parse(raw);
+        } catch (_) {
+          return { message: raw.trim() || 'Request failed' };
+        }
+      }
       for (const form of forms) {
         form.addEventListener('submit', async (event) => {
           event.preventDefault();
@@ -963,15 +984,15 @@ const systemHTML = `{{define "system"}}<!DOCTYPE html>
               headers: { 'Accept': 'application/json', 'X-Requested-With': 'fetch', 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
               body: body.toString()
             });
-            const data = await resp.json();
+            const data = await readActionResponse(resp);
             if (!resp.ok || !data.ok) {
-              setFlash('err', data.message || 'Request failed', data.warnings || data.errors || []);
+              setFlash('err', data.message || resp.statusText || 'Request failed', data.warnings || data.errors || []);
               return;
             }
             setFlash((data.warnings && data.warnings.length) ? 'warn' : 'ok', data.message || '', data.warnings || []);
             applyStatus(data.status);
-          } catch (_) {
-            setFlash('err', 'Request failed');
+          } catch (error) {
+            setFlash('err', error instanceof Error ? error.message : 'Request failed');
           }
         });
       }

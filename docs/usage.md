@@ -293,7 +293,7 @@ The unified uninstall script removes:
 - Legacy scripts remove the Scheduled Task entry
 - Running manager/tray processes
 - Generated prompt script
-- Optional local data directory
+- Optional local data beside `web-share.exe`, mainly `web-share.db`
 
 ## 中文
 
@@ -592,4 +592,4 @@ http://<局域网IP>:21910/s/<share-code>
 - 兼容脚本会移除计划任务
 - 管理器和托盘进程
 - 自动生成的密码输入脚本
-- 可选本地数据目录
+- 可选本地数据位于 `web-share.exe` 同目录，主要是 `web-share.db`

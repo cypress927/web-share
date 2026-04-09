@@ -253,13 +253,15 @@ func removePasswordPromptScript() error {
 }
 
 func removeDataDir() error {
-	cacheDir, err := os.UserCacheDir()
+	exePath, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	dataDir := filepath.Join(cacheDir, "WebShare")
-	if err := os.RemoveAll(dataDir); err != nil {
-		return err
+	dbPath := filepath.Join(filepath.Dir(exePath), "web-share.db")
+	for _, path := range []string{dbPath, dbPath + "-shm", dbPath + "-wal"} {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	return nil
 }

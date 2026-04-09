@@ -252,7 +252,7 @@ The built-in uninstall command removes:
 - Registry-based auto-start entry
 - Running manager/tray processes
 - Generated prompt script cache
-- Optional local data under `%LOCALAPPDATA%\WebShare`
+- Optional local data beside `web-share.exe`, mainly `web-share.db`
 
 Current behavior notes:
 
@@ -266,7 +266,7 @@ For the normal user flow, you can also:
 2. Remove context menu and auto start
 3. Exit the program from tray
 4. Delete `web-share.exe`
-5. Optionally delete `%LOCALAPPDATA%\WebShare`
+5. Optionally delete `web-share.db` beside `web-share.exe`
 
 Legacy wrapper script:
 
@@ -551,7 +551,7 @@ go build -o .\web-share.exe .\cmd\web-share
 - 注册表自启动项
 - 后台管理器与托盘进程
 - 自动生成的密码输入脚本缓存
-- 可选删除 `%LOCALAPPDATA%\WebShare` 本地数据
+- 可选删除 `web-share.exe` 同目录下的本地数据，主要是 `web-share.db`
 
 当前补充说明：
 
@@ -565,7 +565,7 @@ go build -o .\web-share.exe .\cmd\web-share
 2. 卸载右键菜单、关闭自启动
 3. 从托盘退出程序
 4. 手动删除 `web-share.exe`
-5. 按需删除 `%LOCALAPPDATA%\WebShare`
+5. 按需删除 `web-share.exe` 同目录下的 `web-share.db`
 
 兼容脚本入口：
 

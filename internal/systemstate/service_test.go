@@ -380,6 +380,7 @@ func TestEnsureProgramStoppedRequestsStop(t *testing.T) {
 
 func TestSnapshotAggregatesStatuses(t *testing.T) {
 	service := NewService(fakeLogger{})
+	service.Manager = &fakeManagerPort{inspectResults: []InspectResult{{Installed: true}}}
 	service.ContextMenu = &fakeContextMenuPort{inspectResults: []InspectResult{{Installed: true, Dirty: true, Warnings: []string{"ctx dirty"}}}}
 	service.Autostart = &fakeAutostartPort{inspectResults: []InspectResult{{Installed: false, Warnings: []string{"auto missing"}}}}
 	service.Tray = &fakeTrayPort{inspectResults: []InspectResult{{Installed: true}}}
@@ -390,6 +391,9 @@ func TestSnapshotAggregatesStatuses(t *testing.T) {
 	}
 	if !snapshot.ContextMenuInstalled || !snapshot.ContextMenuDirty {
 		t.Fatalf("unexpected context snapshot: %+v", snapshot)
+	}
+	if !snapshot.ManagerRunning {
+		t.Fatalf("expected manager running snapshot: %+v", snapshot)
 	}
 	if snapshot.AutostartEnabled {
 		t.Fatalf("expected autostart disabled snapshot: %+v", snapshot)

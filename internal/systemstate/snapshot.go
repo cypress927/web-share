@@ -4,6 +4,14 @@ func (s *Service) Snapshot(exePath, taskName, command string) (StatusSnapshot, e
 	var snapshot StatusSnapshot
 	warnings := make([]string, 0, 8)
 
+	if s.Manager != nil {
+		state, err := s.Manager.Inspect()
+		if err != nil {
+			return snapshot, err
+		}
+		snapshot.ManagerRunning = state.Installed
+		warnings = append(warnings, state.Warnings...)
+	}
 	if s.ContextMenu != nil {
 		state, err := s.ContextMenu.Inspect(exePath)
 		if err != nil {

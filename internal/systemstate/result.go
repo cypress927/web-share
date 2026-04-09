@@ -32,6 +32,7 @@ type InspectResult struct {
 }
 
 type StatusSnapshot struct {
+	ManagerRunning       bool
 	ContextMenuInstalled bool
 	ContextMenuDirty     bool
 	AutostartEnabled     bool
